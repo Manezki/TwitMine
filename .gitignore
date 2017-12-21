@@ -100,5 +100,8 @@ ENV/
 # mypy
 .mypy_cache/
 
-# Ignore data-files
+# Data-files
 data/
+
+# visual studio code
+.vscode/
