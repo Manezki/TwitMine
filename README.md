@@ -1,0 +1,2 @@
+# TwitMine
+Twitter sentiment analyser
