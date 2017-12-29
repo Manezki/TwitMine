@@ -7,6 +7,26 @@ from torch.autograd import Variable
 from os import path as op
 
 
+
+MAX_LEN = 30
+EMBEDDING_SIZE = 64
+BATCH_SIZE = 32
+EPOCH = 40
+DATA_SIZE = 1000
+INPUT_SIZE = 300
+
+
+def batch(tensor, batch_size):
+	tensor_list = []
+	length = tensor.shape[0]
+	i = 0
+	while True:
+		if (i+1) * batch_size >= length:
+			tensor_list.append(tensor[i * batch_size: length])
+			return tensor_list
+		tensor_list.append(tensor[i * batch_size: (i+1) * batch_size])
+		i += 1
+
 class Estimator(object):
     ## Based on woderfull Gist https://gist.github.com/kenzotakahashi/ed9631f151710c6bd898499fcf938425
 
@@ -86,6 +106,8 @@ class RNN(nn.Module):
         self.embed = nn.Embedding(401,embed_size)
 
         self.rnn = nn.GRUCell(embed_size, hidden_size)
+        self.output = nn.Linear(hidden_size, output_size)
+
         if weights_path is not None:
             self._load_weights(weights_path)
 
@@ -99,6 +121,8 @@ class RNN(nn.Module):
         self.rnn.weight_ih = nn.Parameter(torch.from_numpy(H5['rnn/rnn/kernel'].value))
         self.rnn.weight_hh = nn.Parameter(torch.from_numpy(H5['rnn/rnn/recurrent_kernel'].value))
         self.rnn.bias_ih = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value))
+        self.output.weight = nn.Parameter(torch.from_numpy(H5['output/output/kernel'].value))
+        self.output.bias_ih = nn.Parameter(torch.from_numpy(H5['output/output/bias'].value))
 
 
     def forward(self, input, hidden):
@@ -107,17 +131,35 @@ class RNN(nn.Module):
         for i in input:
             _, hidden = self.rnn(self.embed(input(i)), hidden)
 
-        output = self.softmax(hidden)
+        output = self.softmax(self.output(hidden))
         return output, hidden
 
-RNN(140,256,100,2, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
+RNN(140,256,100,3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
 
 ################################
 
-import h5py
-c = 0
-H5 = h5py.File(op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"), "r")
-for k in H5['rnn/rnn'].keys():
-    print(k)
 
-print(H5['rnn/rnn/recurrent_kernel'].shape)
+
+def main():
+
+
+	## Fake data
+	X = np.random.randn(DATA_SIZE * 1, MAX_LEN, INPUT_SIZE)
+	y = np.array([i for i in range(1) for _ in range(DATA_SIZE)])
+
+	X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2)
+
+	model = GRU(INPUT_SIZE, EMBEDDING_SIZE, 1)
+	clf = Estimator(model)
+	clf.compile(optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
+				loss=nn.CrossEntropyLoss())
+	clf.fit(X_train, y_train, batch_size=BATCH_SIZE, nb_epoch=EPOCH,
+			validation_data=(X_test, y_test))
+	score, acc = clf.evaluate(X_test, y_test)
+	print('Test score:', score)
+	print('Test accuracy:', acc)
+
+	torch.save(model, 'model.pt')
+
+if __name__ == "__main__":
+	main()
