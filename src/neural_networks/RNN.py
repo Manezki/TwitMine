@@ -75,6 +75,9 @@ class Estimator(object):
 		return torch.topk(self.predict(X), 1)[1].data.numpy().flatten()
 
 
+#############
+
+
 class RNN(nn.Module):
     def __init__(self, input_size, hidden_size, embed_size, output_size, weights_path=None, dict_path=None):
         super(RNN, self).__init__()
@@ -101,7 +104,7 @@ class RNN(nn.Module):
     def forward(self, input, hidden):
         hidden = Variable(torch.zeros(1, self.hidden_size))
 
-        for i in range(140):
+        for i in input:
             _, hidden = self.rnn(self.embed(input(i)), hidden)
 
         output = self.softmax(hidden)
