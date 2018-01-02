@@ -99,7 +99,7 @@ class Estimator(object):
 
 
 class RNN(nn.Module):
-    def __init__(self, input_size, hidden_size, embed_size, output_size, weights_path=None, dict_path=None):
+    def __init__(self, input_size, embed_size, hidden_size, output_size, weights_path=None, dict_path=None):
         super(RNN, self).__init__()
 
         self.hidden_size = hidden_size
@@ -134,7 +134,7 @@ class RNN(nn.Module):
         output = self.softmax(self.output(hidden))
         return output, hidden
 
-RNN(140,256,100,3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
+RNN(140,100,256,3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
 
 ################################
 
@@ -150,6 +150,7 @@ def main():
 	X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2)
 
 	model = GRU(INPUT_SIZE, EMBEDDING_SIZE, 1)
+	model = RNN(140, 100, 256, 2, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
 	clf = Estimator(model)
 	clf.compile(optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
 				loss=nn.CrossEntropyLoss())

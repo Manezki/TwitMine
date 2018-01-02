@@ -1,7 +1,7 @@
 from os import path as op
 import re
 import pandas
-
+import numpy as np
 
 DATADIR = op.join(op.dirname(__file__), "..", "data")
 DATAFILE = op.join(DATADIR, "4a-english", "4A-English", "SemEval2017-task4-dev.subtask-A.english.INPUT.txt")
@@ -11,6 +11,15 @@ EMOJIS = op.join(DATADIR, "emojis.csv")
 EMOJIS = pandas.read_csv(EMOJIS, sep=",", index_col=0, encoding="utf-8")
 
 C = 0
+
+def parseFromSemEval(file):
+    # This should be wrapped in check
+    f = pandas.read_csv(file, sep="\t", encoding="utf-8", names=["id", "semantic", "text", "empty"])
+    f = f.drop(["empty"], axis=1)
+    f["semantic"] = f["semantic"].map({"negative": -1,
+                                       "neutral": 0,
+                                       "positive": 1})
+    return f[["text", "semantic"]].as_matrix()
 
 def rept(matchobj):
     return str(matchobj.groups(0)[0] + matchobj.groups(0)[0])
@@ -33,12 +42,4 @@ def clicheLine(line):
     return line
 
 
-with open(DATAFILE, "r") as reader:
-    line = reader.readline()
-    while line != None and C <= 100:
-        line = clicheLine(line)
-        print(line)
-        line = reader.readline()
-        C += 1
-
-print(EMOJIS)
+tweets = parseFromSemEval(DATAFILE)
