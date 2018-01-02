@@ -5,6 +5,7 @@ import json
 import torch.nn.functional as F
 from torch.autograd import Variable
 from os import path as op
+from sklearn.model_selection import train_test_split
 
 
 
@@ -14,6 +15,16 @@ BATCH_SIZE = 32
 EPOCH = 40
 DATA_SIZE = 1000
 INPUT_SIZE = 300
+
+def parseFromSemEval(file):
+	import pandas
+    # This should be wrapped in check
+	f = pandas.read_csv(file, sep="\t", encoding="utf-8", names=["id", "semantic", "text", "empty"])
+	f = f.drop(["empty"], axis=1)
+	f["semantic"] = f["semantic"].map({"negative": -1,
+                                       "neutral": 0,
+                                       "positive": 1})
+	return f[["text", "semantic"]].as_matrix()
 
 
 def batch(tensor, batch_size):
@@ -126,13 +137,14 @@ class RNN(nn.Module):
 
 
     def forward(self, input, hidden):
-        hidden = Variable(torch.zeros(1, self.hidden_size))
-
         for i in input:
             _, hidden = self.rnn(self.embed(input(i)), hidden)
 
         output = self.softmax(self.output(hidden))
         return output, hidden
+
+    def initHidden(self, input_size):
+    	hidden = Variable(torch.zeros(1, input_size, self.hidden_size))
 
 RNN(140,100,256,3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
 
@@ -142,14 +154,31 @@ RNN(140,100,256,3, weights_path=op.join(op.dirname(__file__), "..", "..", "react
 
 def main():
 
-
 	## Fake data
-	X = np.random.randn(DATA_SIZE * 1, MAX_LEN, INPUT_SIZE)
-	y = np.array([i for i in range(1) for _ in range(DATA_SIZE)])
+	DATADIR = op.join(op.dirname(__file__), "..", "..", "data")
+	DATAFILE = op.join(DATADIR, "4a-english", "4A-English", "SemEval2017-task4-dev.subtask-A.english.INPUT.txt")
+	VOCAB = op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_vocab.json")
+	CONVERT_TABLE = json.load(open(VOCAB))
+	DATA = parseFromSemEval(DATAFILE)
+	
+	# Convert according to VOCAB
+	CONVERTED = np.zeros((DATA.shape[0], 140))
+	for i in range(DATA.shape[0]):
+		txt = DATA[i,0]
+		for j in range(min(len(txt), 140)):
+			try:
+				CONVERTED[i,j] = CONVERT_TABLE[txt[j]]
+			except KeyError:
+				# Keep as 0
+				pass
+			
+
+	X = CONVERTED
+	y = DATA[:,1].astype(int)
 
 	X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2)
 
-	model = GRU(INPUT_SIZE, EMBEDDING_SIZE, 1)
+
 	model = RNN(140, 100, 256, 2, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
 	clf = Estimator(model)
 	clf.compile(optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
