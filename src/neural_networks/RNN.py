@@ -60,7 +60,9 @@ class Estimator(object):
             y_v = Variable(torch.from_numpy(y).long(), requires_grad=False)
 
             self.optimizer.zero_grad()
-            y_pred = self.model(X_v, self.model.initHidden(X_v.size()[1]))
+            # Original y_pred = self.model(X, self.model.initHidden(X.size()[1]))
+            # Init hidden 100, as we perform embedding in the GRU
+            y_pred = self.model(X_v, self.model.initHidden(100))
             loss = self.loss_f(y_pred, y_v)
             loss.backward()
             self.optimizer.step()
@@ -100,7 +102,9 @@ class Estimator(object):
 
     def predict(self, X):
         X = Variable(torch.from_numpy(np.swapaxes(X,0,1)).float())		
-        y_pred = self.model(X, self.model.initHidden(X.size()[1]))
+        # Original y_pred = self.model(X, self.model.initHidden(X.size()[1]))
+        # Init hidden 100, as we perform embedding in the GRU
+        y_pred = self.model(X, self.model.initHidden(100))
         return y_pred		
 
     def predict_classes(self, X):
@@ -117,7 +121,8 @@ class RNN(nn.Module):
         self.hidden_size = hidden_size
         self.embed = nn.Embedding(401,embed_size)
 
-        self.rnn = nn.GRUCell(embed_size, hidden_size)
+        self.rnn = nn.GRU(embed_size, hidden_size)
+        [ print(w.shape) for w in self.rnn.parameters()]
         self.output = nn.Linear(hidden_size, output_size)
 
         if weights_path is not None:
@@ -126,13 +131,26 @@ class RNN(nn.Module):
         self.softmax = nn.LogSoftmax(dim=1)
 
     def _load_weights(self, weights_path):
+        """ Only works with original weights"""
         import h5py
         # op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5")
         H5 = h5py.File(weights_path, "r")
         self.embed.weight = nn.Parameter(torch.from_numpy(H5['embedding/embedding/embeddings'].value), requires_grad=False)
-        self.rnn.weight_ih = nn.Parameter(torch.from_numpy(H5['rnn/rnn/kernel'].value), requires_grad=False)
-        self.rnn.weight_hh = nn.Parameter(torch.from_numpy(H5['rnn/rnn/recurrent_kernel'].value), requires_grad=False)
-        self.rnn.bias_ih = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value), requires_grad=False)
+        # Saved files have axes swapped
+        print(H5['rnn/rnn/recurrent_kernel'].value.shape)
+        self.rnn.weight_ih = nn.Parameter(torch.from_numpy(np.transpose(H5['rnn/rnn/kernel'].value)), requires_grad=False)
+        self.rnn.weight_hh = nn.Parameter(torch.from_numpy(np.transpose(H5['rnn/rnn/recurrent_kernel'].value)), requires_grad=False)
+        
+        if 1 == 1:
+            self.rnn.bias_ih = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value), requires_grad=False)
+            self.rnn.bias_hh = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value), requires_grad=False)
+        else:
+            #Reshaped tried 768,1 and 1,768. Array seems to be the right format 
+            self.rnn.bias_ih = nn.Parameter(torch.from_numpy(
+                np.reshape(H5['rnn/rnn/bias'].value, (-1, 1))), requires_grad=False)
+            self.rnn.bias_hh = nn.Parameter(torch.from_numpy(
+                np.reshape(H5['rnn/rnn/bias'].value, (-1, 1))), requires_grad=False)
+        print(self.rnn.bias_ih.size())
         # Only train output layer
         self.output.weight = nn.Parameter(torch.from_numpy(H5['output/output/kernel'].value), requires_grad=True)
         self.output.bias_ih = nn.Parameter(torch.from_numpy(H5['output/output/bias'].value), requires_grad=True)
@@ -141,16 +159,20 @@ class RNN(nn.Module):
     def forward(self, input, hidden):
         embedded = self.embed(input)
         for i in range(140):
-            
-            _, hidden = self.rnn(embedded[:,i,:], hidden)
+            print(i)
+            print(hidden.size())
+            print(embedded[:,i,:].shape)
+            print(self.rnn.weight_ih.shape)
+            print(self.rnn.bias_ih.shape)
+            hidden = self.rnn(embedded[:,i,:].contiguous().view(BATCH_SIZE, -1, 100), hidden)
 
         output = self.softmax(self.output(hidden))
         return output, hidden
 
     def initHidden(self, input_size):
-        hidden = Variable(torch.zeros(1, input_size, self.hidden_size))
+        return Variable(torch.zeros(input_size, self.hidden_size))
 
-RNN(140,100,256,3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
+#RNN(140,100,256,3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
 
 ################################
 
@@ -183,7 +205,7 @@ def main():
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2)
 
 
-    model = RNN(140, 100, 256, 2, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
+    model = RNN(140, 100, 256, 3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
     clf = Estimator(model)
     clf.compile(optimizer=torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4),
                 loss=nn.CrossEntropyLoss())
