@@ -12,7 +12,7 @@ from sklearn.model_selection import train_test_split
 MAX_LEN = 30
 EMBEDDING_SIZE = 64
 BATCH_SIZE = 32
-EPOCH = 40
+EPOCH = 1
 DATA_SIZE = 1000
 INPUT_SIZE = 300
 
@@ -58,12 +58,14 @@ class Estimator(object):
             # Original torch.from_numpy(np.swapaxes(X,0,1)).float()
             X_v = Variable(torch.from_numpy(X).long())
             y_v = Variable(torch.from_numpy(y).long(), requires_grad=False)
+            print(y_v.size())
 
             self.optimizer.zero_grad()
             # Original y_pred = self.model(X, self.model.initHidden(X.size()[1]))
             # Init hidden 100, as we perform embedding in the GRU
-            y_pred = self.model(X_v, self.model.initHidden(100))
-            loss = self.loss_f(y_pred, y_v)
+            y_pred, hidden = self.model(X_v, self.model.initHidden(100))
+            print(y_pred.size())
+            loss = self.loss_f(y_pred.view(100,3), y_v)
             loss.backward()
             self.optimizer.step()
 
@@ -122,13 +124,12 @@ class RNN(nn.Module):
         self.embed = nn.Embedding(401,embed_size)
 
         self.rnn = nn.GRU(embed_size, hidden_size)
-        [ print(w.shape) for w in self.rnn.parameters()]
         self.output = nn.Linear(hidden_size, output_size)
 
         if weights_path is not None:
             self._load_weights(weights_path)
 
-        self.softmax = nn.LogSoftmax(dim=1)
+        self.softmax = nn.LogSoftmax(dim=2)
 
     def _load_weights(self, weights_path):
         """ Only works with original weights"""
@@ -152,25 +153,33 @@ class RNN(nn.Module):
                 np.reshape(H5['rnn/rnn/bias'].value, (-1, 1))), requires_grad=False)
         print(self.rnn.bias_ih.size())
         # Only train output layer
-        self.output.weight = nn.Parameter(torch.from_numpy(H5['output/output/kernel'].value), requires_grad=True)
-        self.output.bias_ih = nn.Parameter(torch.from_numpy(H5['output/output/bias'].value), requires_grad=True)
+        #self.output.weight = nn.Parameter(torch.from_numpy(np.transpose(H5['output/output/kernel'].value)), requires_grad=True)
+        #self.output.bias_ih = nn.Parameter(torch.from_numpy(np.transpose(H5['output/output/bias'].value)), requires_grad=True)
+        print(self.output.weight.size())
+        self.output.weight = nn.init.xavier_normal(nn.Parameter(torch.zeros(3,256), requires_grad=True))
+        self.output.bias_ih = nn.init.xavier_normal(nn.Parameter(torch.zeros(3,256), requires_grad=True))
 
 
     def forward(self, input, hidden):
         embedded = self.embed(input)
         for i in range(140):
             print(i)
-            print(hidden.size())
-            print(embedded[:,i,:].shape)
-            print(self.rnn.weight_ih.shape)
-            print(self.rnn.bias_ih.shape)
-            hidden = self.rnn(embedded[:,i,:].contiguous().view(BATCH_SIZE, -1, 100), hidden)
+            #print(hidden.size())
+            #print(embedded[:,i,:].contiguous().view(32, 1, 100).shape)
+            #print(embedded[:,i,:].unsqueeze(0).shape)
+            #print(self.rnn.weight_hh.shape)
+            #print(self.rnn.bias_hh.shape)
+            out, hidden = self.rnn(embedded[:,i,:].contiguous().view(32, 1, 100), hidden)
 
-        output = self.softmax(self.output(hidden))
+        print("In size " + str(out.size()))
+        lin = self.output(out)
+        print(lin.size())
+        output = self.softmax(lin)
+        print(output)
         return output, hidden
 
     def initHidden(self, input_size):
-        return Variable(torch.zeros(input_size, self.hidden_size))
+        return Variable(torch.zeros(1, input_size, self.hidden_size))
 
 #RNN(140,100,256,3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
 
@@ -206,6 +215,7 @@ def main():
 
 
     model = RNN(140, 100, 256, 3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
+    print(model)
     clf = Estimator(model)
     clf.compile(optimizer=torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4),
                 loss=nn.CrossEntropyLoss())
