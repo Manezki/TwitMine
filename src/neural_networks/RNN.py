@@ -57,15 +57,14 @@ class Estimator(object):
         for X, y in zip(X_list, y_list):
             # Original torch.from_numpy(np.swapaxes(X,0,1)).float()
             X_v = Variable(torch.from_numpy(X).long())
-            y_v = Variable(torch.from_numpy(y).long(), requires_grad=False)
-            print(y_v.size())
+            y_v = Variable(torch.from_numpy(y).long(), requires_grad=False) + 1
+            
 
             self.optimizer.zero_grad()
             # Original y_pred = self.model(X, self.model.initHidden(X.size()[1]))
             # Init hidden 100, as we perform embedding in the GRU
             y_pred, hidden = self.model(X_v, self.model.initHidden(100))
-            print(y_pred.size())
-            loss = self.loss_f(y_pred.view(100,3), y_v)
+            loss = self.loss_f(y_pred, y_v)
             loss.backward()
             self.optimizer.step()
 
@@ -90,9 +89,9 @@ class Estimator(object):
             print("Epoch %s/%s loss: %06.4f - acc: %06.4f %s" % (t, nb_epoch, loss, acc, val_log))
 
     def evaluate(self, X, y, batch_size=32):
-        y_pred = self.predict(X)
+        y_pred, hidden = self.predict(X)
 
-        y_v = Variable(torch.from_numpy(y).long(), requires_grad=False)
+        y_v = Variable(torch.from_numpy(y).long(), requires_grad=False) + 1
         loss = self.loss_f(y_pred, y_v)
 
         classes = torch.topk(y_pred, 1)[1].data.numpy().flatten()
@@ -103,7 +102,7 @@ class Estimator(object):
         return sum(y_pred == y) / y.shape[0]
 
     def predict(self, X):
-        X = Variable(torch.from_numpy(np.swapaxes(X,0,1)).float())		
+        X = Variable(torch.from_numpy(X).long())		
         # Original y_pred = self.model(X, self.model.initHidden(X.size()[1]))
         # Init hidden 100, as we perform embedding in the GRU
         y_pred = self.model(X, self.model.initHidden(100))
@@ -123,13 +122,13 @@ class RNN(nn.Module):
         self.hidden_size = hidden_size
         self.embed = nn.Embedding(401,embed_size)
 
-        self.rnn = nn.GRU(embed_size, hidden_size)
+        self.rnn = nn.GRU(embed_size, hidden_size, bias=True)
         self.output = nn.Linear(hidden_size, output_size)
 
         if weights_path is not None:
             self._load_weights(weights_path)
 
-        self.softmax = nn.LogSoftmax(dim=2)
+        self.softmax = nn.LogSoftmax(dim=1)
 
     def _load_weights(self, weights_path):
         """ Only works with original weights"""
@@ -138,7 +137,6 @@ class RNN(nn.Module):
         H5 = h5py.File(weights_path, "r")
         self.embed.weight = nn.Parameter(torch.from_numpy(H5['embedding/embedding/embeddings'].value), requires_grad=False)
         # Saved files have axes swapped
-        print(H5['rnn/rnn/recurrent_kernel'].value.shape)
         self.rnn.weight_ih = nn.Parameter(torch.from_numpy(np.transpose(H5['rnn/rnn/kernel'].value)), requires_grad=False)
         self.rnn.weight_hh = nn.Parameter(torch.from_numpy(np.transpose(H5['rnn/rnn/recurrent_kernel'].value)), requires_grad=False)
         
@@ -151,35 +149,31 @@ class RNN(nn.Module):
                 np.reshape(H5['rnn/rnn/bias'].value, (-1, 1))), requires_grad=False)
             self.rnn.bias_hh = nn.Parameter(torch.from_numpy(
                 np.reshape(H5['rnn/rnn/bias'].value, (-1, 1))), requires_grad=False)
-        print(self.rnn.bias_ih.size())
         # Only train output layer
         #self.output.weight = nn.Parameter(torch.from_numpy(np.transpose(H5['output/output/kernel'].value)), requires_grad=True)
         #self.output.bias_ih = nn.Parameter(torch.from_numpy(np.transpose(H5['output/output/bias'].value)), requires_grad=True)
-        print(self.output.weight.size())
         self.output.weight = nn.init.xavier_normal(nn.Parameter(torch.zeros(3,256), requires_grad=True))
         self.output.bias_ih = nn.init.xavier_normal(nn.Parameter(torch.zeros(3,256), requires_grad=True))
 
 
     def forward(self, input, hidden):
-        embedded = self.embed(input)
-        for i in range(140):
-            print(i)
-            #print(hidden.size())
-            #print(embedded[:,i,:].contiguous().view(32, 1, 100).shape)
-            #print(embedded[:,i,:].unsqueeze(0).shape)
-            #print(self.rnn.weight_hh.shape)
-            #print(self.rnn.bias_hh.shape)
-            out, hidden = self.rnn(embedded[:,i,:].contiguous().view(32, 1, 100), hidden)
+        embedded = self.embed(input).transpose_(0,1)
+        out, hidden = self.rnn(embedded, hidden)
+        #for i in range(1):
+        #    print(i)
+        #    #print(hidden.size())
+        #    #print(embedded[:,i,:].contiguous().view(32, 1, 100).shape)
+        #    #print(embedded[:,i,:].unsqueeze(0).shape)
+        #    #print(self.rnn.weight_hh.shape)
+        #    #print(self.rnn.bias_hh.shape)
+        #    out, hidden = self.rnn(embedded[:,:,:], hidden)
 
-        print("In size " + str(out.size()))
-        lin = self.output(out)
-        print(lin.size())
+        lin = self.output(out[MAX_LEN-1,:,:])
         output = self.softmax(lin)
-        print(output)
         return output, hidden
 
     def initHidden(self, input_size):
-        return Variable(torch.zeros(1, input_size, self.hidden_size))
+        return Variable(torch.zeros(1, 1, self.hidden_size))
 
 #RNN(140,100,256,3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
 
@@ -189,10 +183,9 @@ class RNN(nn.Module):
 
 def main():
 
-    ## Fake data
     DATADIR = op.join(op.dirname(__file__), "..", "..", "data")
     DATAFILE = op.join(DATADIR, "4a-english", "4A-English", "SemEval2017-task4-dev.subtask-A.english.INPUT.txt")
-    VOCAB = op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_vocab.json")
+    VOCAB = op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_vocab.json")
     CONVERT_TABLE = json.load(open(VOCAB))
     DATA = parseFromSemEval(DATAFILE)
     
@@ -211,10 +204,10 @@ def main():
     X = CONVERTED
     y = DATA[:,1].astype(int)
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2)
+    X_train, X_test, y_train, y_test = train_test_split(X[:159,:], y[:159], test_size=.2)
 
 
-    model = RNN(140, 100, 256, 3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
+    model = RNN(140, 100, 256, 3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_weights.hdf5"))
     print(model)
     clf = Estimator(model)
     clf.compile(optimizer=torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4),

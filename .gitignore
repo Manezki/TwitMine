@@ -107,3 +107,6 @@ data/
 .vscode/
 
 twitter_token
+
+# Reactionrnn clone
+reactionrnn
