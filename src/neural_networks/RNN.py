@@ -2,19 +2,19 @@ import torch
 import torch.nn as nn
 import numpy as np
 import json
+import shutil
 import torch.nn.functional as F
 from torch.autograd import Variable
 from os import path as op
 from sklearn.model_selection import train_test_split
 
-
-
-MAX_LEN = 30
-EMBEDDING_SIZE = 64
+MAX_LEN = 140       # Lenth of a tweet
 BATCH_SIZE = 32
 EPOCH = 1
-DATA_SIZE = 1000
-INPUT_SIZE = 300
+CONTINUE = True
+
+CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.tar")
+MODEL_PATH = op.join(op.dirname(__file__), "..", "..", "model.tar")
 
 def parseFromSemEval(file):
     import pandas
@@ -37,6 +37,11 @@ def batch(tensor, batch_size):
             return tensor_list
         tensor_list.append(tensor[i * batch_size: (i+1) * batch_size])
         i += 1
+
+def save_checkpoint(state, is_best, filename=CHECKPOINT_PATH):
+    torch.save(state, filename)
+    if is_best:
+        shutil.copyfile(filename, MODEL_PATH)
 
 class Estimator(object):
     ## Based on woderfull Gist https://gist.github.com/kenzotakahashi/ed9631f151710c6bd898499fcf938425
@@ -182,6 +187,7 @@ class RNN(nn.Module):
 
 
 def main():
+    # TODO Add plotting
 
     DATADIR = op.join(op.dirname(__file__), "..", "..", "data")
     DATAFILE = op.join(DATADIR, "4a-english", "4A-English", "SemEval2017-task4-dev.subtask-A.english.INPUT.txt")
@@ -206,11 +212,26 @@ def main():
 
     X_train, X_test, y_train, y_test = train_test_split(X[:159,:], y[:159], test_size=.2)
 
+    epoch = 0
+    best_prec = 0.0
+
 
     model = RNN(140, 100, 256, 3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_weights.hdf5"))
+    optimizer = optimizer=torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4)
+
+    if op.exists(MODEL_PATH) and CONTINUE:
+        print("Continuying with the previous model")
+        checkpoint = torch.load(MODEL_PATH)
+        epoch = checkpoint["epoch"]
+        best_prec = checkpoint["best_prec"]
+        model.load_state_dict(checkpoint["state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        print("=> loaded checkpoint (epoch {})"
+                  .format(checkpoint['epoch']))
+
     print(model)
     clf = Estimator(model)
-    clf.compile(optimizer=torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4),
+    clf.compile(optimizer,
                 loss=nn.CrossEntropyLoss())
     clf.fit(X_train, y_train, batch_size=BATCH_SIZE, nb_epoch=EPOCH,
             validation_data=(X_test, y_test))
@@ -218,7 +239,15 @@ def main():
     print('Test score:', score)
     print('Test accuracy:', acc)
 
-    torch.save(model, 'model.pt')
+    # Save the model
+    is_best = acc > best_prec
+    best_prec = max(acc, best_prec) 
+    save_checkpoint({
+            'epoch': epoch + 1,
+            'state_dict': model.state_dict(),
+            'best_prec': best_prec,
+            'optimizer' : optimizer.state_dict(),
+        }, is_best)
 
 if __name__ == "__main__":
     main()
