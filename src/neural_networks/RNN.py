@@ -16,6 +16,10 @@ CONTINUE = True
 CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.tar")
 MODEL_PATH = op.join(op.dirname(__file__), "..", "..", "model.tar")
 
+LOST_LIST = []
+TRAINING_ACC = []
+VALIDTATION_LIST = []
+
 def parseFromSemEval(file):
     import pandas
     # This should be wrapped in check
@@ -85,13 +89,21 @@ class Estimator(object):
         X_list = batch(X, batch_size)
         y_list = batch(y, batch_size)
 
+        LOST_LIST = []
+        TRAINING_ACC = []
+        VALIDTATION_LIST = []
+
         for t in range(1, nb_epoch + 1):
             loss, acc = self._fit(X_list, y_list)
+            LOST_LIST.append(loss)
+            TRAINING_ACC.append(acc)
             val_log = ''
             if validation_data:
                 val_loss, val_acc = self.evaluate(validation_data[0], validation_data[1], batch_size)
                 val_log = "- val_loss: %06.4f - val_acc: %06.4f" % (val_loss, val_acc)
+                VALIDTATION_LIST.append(val_acc)
             print("Epoch %s/%s loss: %06.4f - acc: %06.4f %s" % (t, nb_epoch, loss, acc, val_log))
+        return LOST_LIST, TRAINING_ACC, VALIDTATION_LIST
 
     def evaluate(self, X, y, batch_size=32):
         y_pred, hidden = self.predict(X)
@@ -210,11 +222,10 @@ def main():
     X = CONVERTED
     y = DATA[:,1].astype(int)
 
-    X_train, X_test, y_train, y_test = train_test_split(X[:159,:], y[:159], test_size=.2)
+    X_train, X_test, y_train, y_test = train_test_split(X[0:159, :], y[:159], test_size=.2)
 
     epoch = 0
     best_prec = 0.0
-
 
     model = RNN(140, 100, 256, 3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_weights.hdf5"))
     optimizer = optimizer=torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4)
@@ -226,6 +237,9 @@ def main():
         best_prec = checkpoint["best_prec"]
         model.load_state_dict(checkpoint["state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer"])
+        LOST_LIST = checkpoint["los_hist"]
+        TRAINING_ACC = checkpoint["train_hist"]
+        VALIDTATION_LIST = checkpoint["valid_hist"]
         print("=> loaded checkpoint (epoch {})"
                   .format(checkpoint['epoch']))
 
@@ -244,9 +258,12 @@ def main():
     best_prec = max(acc, best_prec) 
     save_checkpoint({
             'epoch': epoch + 1,
-            'state_dict': model.state_dict(),
-            'best_prec': best_prec,
-            'optimizer' : optimizer.state_dict(),
+            'state_dict':   model.state_dict(),
+            'best_prec':    best_prec,
+            'optimizer':    optimizer.state_dict(),
+            'los_hist':     LOST_LIST,
+            'train_hist':   TRAINING_ACC,
+            'valid_hist':   VALIDTATION_LIST
         }, is_best)
 
 if __name__ == "__main__":
