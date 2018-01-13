@@ -9,8 +9,8 @@ from os import path as op
 from sklearn.model_selection import train_test_split
 
 MAX_LEN = 140       # Lenth of a tweet
-BATCH_SIZE = 32
-EPOCH = 1
+BATCH_SIZE = 64
+EPOCH = 0           # With epoch 0, we will run until interrupted
 CONTINUE = True     # Attempts to continue from previous checkpoint
 
 CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.tar")
@@ -174,7 +174,7 @@ class RNN(nn.Module):
 
 
 def main():
-    
+
     DATADIR = op.join(op.dirname(__file__), "..", "..", "data")
     DATAFILE = op.join(DATADIR, "4a-english", "4A-English", "SemEval2017-task4-dev.subtask-A.english.INPUT.txt")
     VOCAB = op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_vocab.json")
@@ -196,7 +196,7 @@ def main():
     X = CONVERTED
     y = DATA[:,1].astype(int)
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2)
+    X_train, X_test, y_train, y_test = train_test_split(X[:500,:], y[:500], test_size=.2)
 
     epoch = 0
     best_prec = 0.0
@@ -224,14 +224,44 @@ def main():
     print(model)
 
 
+    def fit_and_log(epoch):
+        # TODO Low cost seems to result in low acc, Need investigate
+        clf.fit(X_train, y_train, batch_size=BATCH_SIZE, nb_epoch=epoch,
+            validation_data=(X_test, y_test))
+        [training_cost.append(i) for i in clf.training_cost]
+        [training_acc.append(i) for i in clf.training_acc]
+        [validation_acc.append(i) for i in clf.validation_acc]
+
     clf = Estimator(model)
     clf.compile(optimizer,
                 loss=nn.CrossEntropyLoss())
-    clf.fit(X_train, y_train, batch_size=BATCH_SIZE, nb_epoch=EPOCH,
-            validation_data=(X_test, y_test))
-    [training_cost.append(i) for i in clf.training_cost]
-    [training_acc.append(i) for i in clf.training_acc]
-    [validation_acc.append(i) for i in clf.validation_acc]
+    
+    try:
+        if EPOCH == 0:
+            c = 0
+            while True:
+                print("Training epoch: {} from current run".format(c))
+                fit_and_log(1)
+                c+=1
+        else:
+            fit_and_log(EPOCH)
+    except (KeyboardInterrupt, SystemExit):
+        # Save the model
+        if len(validation_acc) != 0:
+            is_best = validation_acc[-1] > best_prec
+            best_prec = max(validation_acc[-1], best_prec) 
+            save_checkpoint({
+                    'epoch': epoch + 1,
+                    'state_dict':   model.state_dict(),
+                    'best_prec':    best_prec,
+                    'optimizer':    optimizer.state_dict(),
+                    'train_cost':   training_cost,
+                    'train_hist':   training_acc,
+                    'valid_hist':   validation_acc
+                }, is_best)
+        print("Saved model after interrupt")
+        raise    
+
     score, acc = clf.evaluate(X_test, y_test)
     print('Test score:', score)
     print('Test accuracy:', acc)
