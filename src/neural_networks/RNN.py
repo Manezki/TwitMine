@@ -11,14 +11,11 @@ from sklearn.model_selection import train_test_split
 MAX_LEN = 140       # Lenth of a tweet
 BATCH_SIZE = 32
 EPOCH = 1
-CONTINUE = True
+CONTINUE = True     # Attempts to continue from previous checkpoint
 
 CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.tar")
 MODEL_PATH = op.join(op.dirname(__file__), "..", "..", "model.tar")
 
-LOST_LIST = []
-TRAINING_ACC = []
-VALIDTATION_LIST = []
 
 def parseFromSemEval(file):
     import pandas
@@ -64,7 +61,6 @@ class Estimator(object):
         loss_list = []
         acc_list = []
         for X, y in zip(X_list, y_list):
-            # Original torch.from_numpy(np.swapaxes(X,0,1)).float()
             X_v = Variable(torch.from_numpy(X).long())
             y_v = Variable(torch.from_numpy(y).long(), requires_grad=False) + 1
             
@@ -89,21 +85,20 @@ class Estimator(object):
         X_list = batch(X, batch_size)
         y_list = batch(y, batch_size)
 
-        LOST_LIST = []
-        TRAINING_ACC = []
-        VALIDTATION_LIST = []
+        self.training_cost = []
+        self.training_acc = []
+        self.validation_acc = []
 
         for t in range(1, nb_epoch + 1):
             loss, acc = self._fit(X_list, y_list)
-            LOST_LIST.append(loss)
-            TRAINING_ACC.append(acc)
+            self.training_cost.append(loss)
+            self.training_acc.append(acc)
             val_log = ''
             if validation_data:
                 val_loss, val_acc = self.evaluate(validation_data[0], validation_data[1], batch_size)
                 val_log = "- val_loss: %06.4f - val_acc: %06.4f" % (val_loss, val_acc)
-                VALIDTATION_LIST.append(val_acc)
+                self.validation_acc.append(val_acc)
             print("Epoch %s/%s loss: %06.4f - acc: %06.4f %s" % (t, nb_epoch, loss, acc, val_log))
-        return LOST_LIST, TRAINING_ACC, VALIDTATION_LIST
 
     def evaluate(self, X, y, batch_size=32):
         y_pred, hidden = self.predict(X)
@@ -150,57 +145,36 @@ class RNN(nn.Module):
     def _load_weights(self, weights_path):
         """ Only works with original weights"""
         import h5py
-        # op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5")
         H5 = h5py.File(weights_path, "r")
         self.embed.weight = nn.Parameter(torch.from_numpy(H5['embedding/embedding/embeddings'].value), requires_grad=False)
         # Saved files have axes swapped
         self.rnn.weight_ih = nn.Parameter(torch.from_numpy(np.transpose(H5['rnn/rnn/kernel'].value)), requires_grad=False)
         self.rnn.weight_hh = nn.Parameter(torch.from_numpy(np.transpose(H5['rnn/rnn/recurrent_kernel'].value)), requires_grad=False)
         
-        if 1 == 1:
-            self.rnn.bias_ih = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value), requires_grad=False)
-            self.rnn.bias_hh = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value), requires_grad=False)
-        else:
-            #Reshaped tried 768,1 and 1,768. Array seems to be the right format 
-            self.rnn.bias_ih = nn.Parameter(torch.from_numpy(
-                np.reshape(H5['rnn/rnn/bias'].value, (-1, 1))), requires_grad=False)
-            self.rnn.bias_hh = nn.Parameter(torch.from_numpy(
-                np.reshape(H5['rnn/rnn/bias'].value, (-1, 1))), requires_grad=False)
+        self.rnn.bias_ih = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value), requires_grad=False)
+        self.rnn.bias_hh = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value), requires_grad=False)
+        
         # Only train output layer
-        #self.output.weight = nn.Parameter(torch.from_numpy(np.transpose(H5['output/output/kernel'].value)), requires_grad=True)
-        #self.output.bias_ih = nn.Parameter(torch.from_numpy(np.transpose(H5['output/output/bias'].value)), requires_grad=True)
         self.output.weight = nn.init.xavier_normal(nn.Parameter(torch.zeros(3,256), requires_grad=True))
         self.output.bias_ih = nn.init.xavier_normal(nn.Parameter(torch.zeros(3,256), requires_grad=True))
 
 
     def forward(self, input, hidden):
         embedded = self.embed(input).transpose_(0,1)
-        out, hidden = self.rnn(embedded, hidden)
-        #for i in range(1):
-        #    print(i)
-        #    #print(hidden.size())
-        #    #print(embedded[:,i,:].contiguous().view(32, 1, 100).shape)
-        #    #print(embedded[:,i,:].unsqueeze(0).shape)
-        #    #print(self.rnn.weight_hh.shape)
-        #    #print(self.rnn.bias_hh.shape)
-        #    out, hidden = self.rnn(embedded[:,:,:], hidden)
 
+        out, hidden = self.rnn(embedded, hidden)
         lin = self.output(out[MAX_LEN-1,:,:])
+        
         output = self.softmax(lin)
         return output, hidden
 
     def initHidden(self, input_size):
         return Variable(torch.zeros(1, 1, self.hidden_size))
 
-#RNN(140,100,256,3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn", "reactionrnn", "reactionrnn_weights.hdf5"))
-
-################################
-
 
 
 def main():
-    # TODO Add plotting
-
+    
     DATADIR = op.join(op.dirname(__file__), "..", "..", "data")
     DATAFILE = op.join(DATADIR, "4a-english", "4A-English", "SemEval2017-task4-dev.subtask-A.english.INPUT.txt")
     VOCAB = op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_vocab.json")
@@ -222,10 +196,13 @@ def main():
     X = CONVERTED
     y = DATA[:,1].astype(int)
 
-    X_train, X_test, y_train, y_test = train_test_split(X[0:159, :], y[:159], test_size=.2)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2)
 
     epoch = 0
     best_prec = 0.0
+    training_cost = []
+    training_acc = []
+    validation_acc = []
 
     model = RNN(140, 100, 256, 3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_weights.hdf5"))
     optimizer = optimizer=torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4)
@@ -237,18 +214,24 @@ def main():
         best_prec = checkpoint["best_prec"]
         model.load_state_dict(checkpoint["state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer"])
-        LOST_LIST = checkpoint["los_hist"]
-        TRAINING_ACC = checkpoint["train_hist"]
-        VALIDTATION_LIST = checkpoint["valid_hist"]
+        training_cost = checkpoint["train_cost"]
+        training_acc = checkpoint["train_hist"]
+        validation_acc = checkpoint["valid_hist"]
         print("=> loaded checkpoint (epoch {})"
                   .format(checkpoint['epoch']))
 
+    
     print(model)
+
+
     clf = Estimator(model)
     clf.compile(optimizer,
                 loss=nn.CrossEntropyLoss())
     clf.fit(X_train, y_train, batch_size=BATCH_SIZE, nb_epoch=EPOCH,
             validation_data=(X_test, y_test))
+    [training_cost.append(i) for i in clf.training_cost]
+    [training_acc.append(i) for i in clf.training_acc]
+    [validation_acc.append(i) for i in clf.validation_acc]
     score, acc = clf.evaluate(X_test, y_test)
     print('Test score:', score)
     print('Test accuracy:', acc)
@@ -261,9 +244,9 @@ def main():
             'state_dict':   model.state_dict(),
             'best_prec':    best_prec,
             'optimizer':    optimizer.state_dict(),
-            'los_hist':     LOST_LIST,
-            'train_hist':   TRAINING_ACC,
-            'valid_hist':   VALIDTATION_LIST
+            'train_cost':   training_cost,
+            'train_hist':   training_acc,
+            'valid_hist':   validation_acc
         }, is_best)
 
 if __name__ == "__main__":
