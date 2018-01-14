@@ -12,6 +12,8 @@ MAX_LEN = 140       # Lenth of a tweet
 BATCH_SIZE = 64
 EPOCH = 0           # With epoch 0, we will run until interrupted
 CONTINUE = True     # Attempts to continue from previous checkpoint
+DEBUG = False
+CUDA = True
 
 CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.tar")
 MODEL_PATH = op.join(op.dirname(__file__), "..", "..", "model.tar")
@@ -61,21 +63,21 @@ class Estimator(object):
         loss_list = []
         acc_list = []
         for X, y in zip(X_list, y_list):
-            X_v = Variable(torch.from_numpy(X).long())
-            y_v = Variable(torch.from_numpy(y).long(), requires_grad=False) + 1
+            X_v = Variable(torch.from_numpy(X).long(), requires_grad=False).cuda()
+            y_v = Variable(torch.from_numpy(y + 1).long(), requires_grad=False).cuda()
             
 
             self.optimizer.zero_grad()
             # Original y_pred = self.model(X, self.model.initHidden(X.size()[1]))
             # Init hidden 100, as we perform embedding in the GRU
-            y_pred, hidden = self.model(X_v, self.model.initHidden(100))
+            y_pred, hidden = self.model(X_v, self.model.initHidden(X.shape[0], 100).cuda())
             loss = self.loss_f(y_pred, y_v)
             loss.backward()
             self.optimizer.step()
 
             ## for log
             loss_list.append(loss.data[0])
-            classes = torch.topk(y_pred, 1)[1].data.numpy().flatten()
+            classes = torch.topk(y_pred, 1)[1].cpu().data.numpy().flatten()
             acc = self._accuracy(classes, y)
             acc_list.append(acc)
 
@@ -103,10 +105,10 @@ class Estimator(object):
     def evaluate(self, X, y, batch_size=32):
         y_pred, hidden = self.predict(X)
 
-        y_v = Variable(torch.from_numpy(y).long(), requires_grad=False) + 1
+        y_v = Variable(torch.from_numpy(y + 1).long(), requires_grad=False).cuda()
         loss = self.loss_f(y_pred, y_v)
 
-        classes = torch.topk(y_pred, 1)[1].data.numpy().flatten()
+        classes = torch.topk(y_pred, 1)[1].cpu().data.numpy().flatten()
         acc = self._accuracy(classes, y)
         return loss.data[0], acc
 
@@ -114,10 +116,10 @@ class Estimator(object):
         return sum(y_pred == y) / y.shape[0]
 
     def predict(self, X):
-        X = Variable(torch.from_numpy(X).long())		
+        X = Variable(torch.from_numpy(X).long()).cuda()
         # Original y_pred = self.model(X, self.model.initHidden(X.size()[1]))
         # Init hidden 100, as we perform embedding in the GRU
-        y_pred = self.model(X, self.model.initHidden(100))
+        y_pred = self.model(X, self.model.initHidden(X.shape[0], 100).cuda())
         return y_pred		
 
     def predict_classes(self, X):
@@ -132,10 +134,10 @@ class RNN(nn.Module):
         super(RNN, self).__init__()
 
         self.hidden_size = hidden_size
-        self.embed = nn.Embedding(401,embed_size)
+        self.embed = nn.Embedding(401,embed_size).cuda()
 
-        self.rnn = nn.GRU(embed_size, hidden_size, bias=True)
-        self.output = nn.Linear(hidden_size, output_size)
+        self.rnn = nn.GRU(embed_size, hidden_size, bias=True).cuda()
+        self.output = nn.Linear(hidden_size, output_size).cuda()
 
         if weights_path is not None:
             self._load_weights(weights_path)
@@ -160,16 +162,17 @@ class RNN(nn.Module):
 
 
     def forward(self, input, hidden):
-        embedded = self.embed(input).transpose_(0,1)
+        embedded = self.embed(input)
+        embedded.transpose_(0,1)
 
         out, hidden = self.rnn(embedded, hidden)
         lin = self.output(out[MAX_LEN-1,:,:])
-        
-        output = self.softmax(lin)
-        return output, hidden
+        #print(lin.size())
+        #output = self.softmax(lin)
+        return lin, hidden
 
-    def initHidden(self, input_size):
-        return Variable(torch.zeros(1, 1, self.hidden_size))
+    def initHidden(self, batch_size, input_size):
+        return Variable(torch.zeros(1, batch_size, self.hidden_size))
 
 
 
@@ -196,7 +199,10 @@ def main():
     X = CONVERTED
     y = DATA[:,1].astype(int)
 
-    X_train, X_test, y_train, y_test = train_test_split(X[:500,:], y[:500], test_size=.2)
+    if DEBUG:
+        X_train, X_test, y_train, y_test = train_test_split(X[:640,:], y[:640], test_size=.2)
+    else:
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2)
 
     epoch = 0
     best_prec = 0.0
@@ -205,7 +211,9 @@ def main():
     validation_acc = []
 
     model = RNN(140, 100, 256, 3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_weights.hdf5"))
-    optimizer = optimizer=torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4)
+    if torch.cuda.is_available() and CUDA:
+        model.cuda()
+    optimizer = optimizer=torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-2)
 
     if op.exists(MODEL_PATH) and CONTINUE:
         print("Continuying with the previous model")
