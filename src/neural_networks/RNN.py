@@ -12,8 +12,8 @@ MAX_LEN = 140       # Lenth of a tweet
 BATCH_SIZE = 64
 EPOCH = 0           # With epoch 0, we will run until interrupted
 CONTINUE = True     # Attempts to continue from previous checkpoint
-DEBUG = False
-CUDA = True
+DEBUG = True
+CUDA = False
 
 CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.tar")
 MODEL_PATH = op.join(op.dirname(__file__), "..", "..", "model.tar")
@@ -63,14 +63,20 @@ class Estimator(object):
         loss_list = []
         acc_list = []
         for X, y in zip(X_list, y_list):
-            X_v = Variable(torch.from_numpy(X).long(), requires_grad=False).cuda()
-            y_v = Variable(torch.from_numpy(y + 1).long(), requires_grad=False).cuda()
+            if CUDA:
+                X_v = Variable(torch.from_numpy(X).long(), requires_grad=False).cuda()
+                y_v = Variable(torch.from_numpy(y + 1).long(), requires_grad=False).cuda()
+                init_hidden = self.model.initHidden(X.shape[0], 100).cuda()
+            else:
+                X_v = Variable(torch.from_numpy(X).long(), requires_grad=False)
+                y_v = Variable(torch.from_numpy(y + 1).long(), requires_grad=False)
+                init_hidden = self.model.initHidden(X.shape[0], 100)
             
 
             self.optimizer.zero_grad()
             # Original y_pred = self.model(X, self.model.initHidden(X.size()[1]))
             # Init hidden 100, as we perform embedding in the GRU
-            y_pred, hidden = self.model(X_v, self.model.initHidden(X.shape[0], 100).cuda())
+            y_pred, hidden = self.model(X_v, init_hidden)
             loss = self.loss_f(y_pred, y_v)
             loss.backward()
             self.optimizer.step()
@@ -105,7 +111,10 @@ class Estimator(object):
     def evaluate(self, X, y, batch_size=32):
         y_pred, hidden = self.predict(X)
 
-        y_v = Variable(torch.from_numpy(y + 1).long(), requires_grad=False).cuda()
+        if CUDA:
+            y_v = Variable(torch.from_numpy(y + 1).long(), requires_grad=False).cuda()
+        else:
+            y_v = Variable(torch.from_numpy(y + 1).long(), requires_grad=False)
         loss = self.loss_f(y_pred, y_v)
 
         classes = torch.topk(y_pred, 1)[1].cpu().data.numpy().flatten()
@@ -116,14 +125,19 @@ class Estimator(object):
         return sum(y_pred == y) / y.shape[0]
 
     def predict(self, X):
-        X = Variable(torch.from_numpy(X).long()).cuda()
+        if CUDA:
+            X = Variable(torch.from_numpy(X).long()).cuda()
+            init_hidden = self.model.initHidden(X.shape[0], 100).cuda()
+        else:
+            X = Variable(torch.from_numpy(X).long())
+            init_hidden = self.model.initHidden(X.shape[0], 100)
         # Original y_pred = self.model(X, self.model.initHidden(X.size()[1]))
         # Init hidden 100, as we perform embedding in the GRU
-        y_pred = self.model(X, self.model.initHidden(X.shape[0], 100).cuda())
+        y_pred = self.model(X, init_hidden)
         return y_pred		
 
     def predict_classes(self, X):
-        return torch.topk(self.predict(X), 1)[1].data.numpy().flatten()
+        return torch.topk(self.predict(X), 1)[1].cpu().data.numpy().flatten()
 
 
 #############
@@ -134,10 +148,10 @@ class RNN(nn.Module):
         super(RNN, self).__init__()
 
         self.hidden_size = hidden_size
-        self.embed = nn.Embedding(401,embed_size).cuda()
+        self.embed = nn.Embedding(401,embed_size)
 
-        self.rnn = nn.GRU(embed_size, hidden_size, bias=True).cuda()
-        self.output = nn.Linear(hidden_size, output_size).cuda()
+        self.rnn = nn.GRU(embed_size, hidden_size, bias=True)
+        self.output = nn.Linear(hidden_size, output_size)
 
         if weights_path is not None:
             self._load_weights(weights_path)
