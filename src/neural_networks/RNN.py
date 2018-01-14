@@ -12,7 +12,7 @@ MAX_LEN = 140       # Lenth of a tweet
 BATCH_SIZE = 64
 EPOCH = 0           # With epoch 0, we will run until interrupted
 CONTINUE = True     # Attempts to continue from previous checkpoint
-DEBUG = True
+DEBUG = False
 CUDA = False
 
 CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.tar")
@@ -84,7 +84,10 @@ class Estimator(object):
             ## for log
             loss_list.append(loss.data[0])
             classes = torch.topk(y_pred, 1)[1].cpu().data.numpy().flatten()
-            acc = self._accuracy(classes, y)
+            #comp = np.hstack((classes.reshape(-1,1), (y+1).reshape(-1,1)))
+            #print(comp)
+            
+            acc = self._accuracy(classes, y+1)
             acc_list.append(acc)
 
         return sum(loss_list) / len(loss_list), sum(acc_list) / len(acc_list)
@@ -118,7 +121,7 @@ class Estimator(object):
         loss = self.loss_f(y_pred, y_v)
 
         classes = torch.topk(y_pred, 1)[1].cpu().data.numpy().flatten()
-        acc = self._accuracy(classes, y)
+        acc = self._accuracy(classes, y+1)
         return loss.data[0], acc
 
     def _accuracy(self, y_pred, y):
@@ -180,9 +183,9 @@ class RNN(nn.Module):
         embedded.transpose_(0,1)
 
         out, hidden = self.rnn(embedded, hidden)
-        lin = self.output(out[MAX_LEN-1,:,:])
-        #print(lin.size())
-        #output = self.softmax(lin)
+        lin = F.relu(self.output(out[MAX_LEN-1,:,:]))
+
+
         return lin, hidden
 
     def initHidden(self, batch_size, input_size):
@@ -247,7 +250,6 @@ def main():
 
 
     def fit_and_log(epoch):
-        # TODO Low cost seems to result in low acc, Need investigate
         clf.fit(X_train, y_train, batch_size=BATCH_SIZE, nb_epoch=epoch,
             validation_data=(X_test, y_test))
         [training_cost.append(i) for i in clf.training_cost]
