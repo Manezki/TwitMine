@@ -22,12 +22,8 @@ MODEL_PATH = op.join(op.dirname(__file__), "..", "..", "model.tar")
 
 def parseFromSemEval(file):
     import pandas
-    # This should be wrapped in check
-    f = pandas.read_csv(file, sep="\t", encoding="utf-8", names=["id", "semantic", "text", "empty"])
-    f = f.drop(["empty"], axis=1)
-    f["semantic"] = f["semantic"].map({"negative": -1,
-                                       "neutral": 0,
-                                       "positive": 1})
+    
+    f = pandas.read_csv(file, sep="\t", encoding="utf-8", index_col=0)
     return f[["text", "semantic"]].as_matrix()
 
 
@@ -210,7 +206,10 @@ class RNN(nn.Module):
 def main():
 
     DATADIR = op.join(op.dirname(__file__), "..", "..", "data")
-    DATAFILE = op.join(DATADIR, "4a-english", "4A-English", "SemEval2017-task4-dev.subtask-A.english.INPUT.txt")
+    DATAFILE = op.join(DATADIR, "semeval-2017.tsv")
+    if not op.exists(DATAFILE):
+        print("Could not find semeval-2017.tsv file. Please run prep_semeval.py from data directory")
+        return -1
     VOCAB = op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_vocab.json")
     CONVERT_TABLE = json.load(open(VOCAB))
     DATA = parseFromSemEval(DATAFILE)
