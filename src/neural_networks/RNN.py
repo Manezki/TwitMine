@@ -9,11 +9,12 @@ from os import path as op
 from sklearn.model_selection import train_test_split
 
 MAX_LEN = 140       # Lenth of a tweet
-BATCH_SIZE = 64
+BATCH_SIZE = 256
 EPOCH = 0           # With epoch 0, we will run until interrupted
+LR = 1e-4
 CONTINUE = True     # Attempts to continue from previous checkpoint
 DEBUG = False
-CUDA = False
+CUDA = True
 
 CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.tar")
 MODEL_PATH = op.join(op.dirname(__file__), "..", "..", "model.tar")
@@ -62,7 +63,11 @@ class Estimator(object):
         """
         loss_list = []
         acc_list = []
+        #i = 0
         for X, y in zip(X_list, y_list):
+            #if i%10 == 0:
+            #    print("Batch: {}/{}".format(i, len(X_list)))
+            #i += 1
             if CUDA:
                 X_v = Variable(torch.from_numpy(X).long(), requires_grad=False).cuda()
                 y_v = Variable(torch.from_numpy(y + 1).long(), requires_grad=False).cuda()
@@ -230,9 +235,13 @@ def main():
     model = RNN(140, 100, 256, 3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_weights.hdf5"))
     if torch.cuda.is_available() and CUDA:
         model.cuda()
-    optimizer = optimizer=torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-2)
-
+        criterion = nn.CrossEntropyLoss().cuda()
+    else:
+        criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=LR)
+        
     if op.exists(MODEL_PATH) and CONTINUE:
+        # TODO, cannot continue if was trained on CPU and continues on GPU and vice versa
         print("Continuying with the previous model")
         checkpoint = torch.load(MODEL_PATH)
         epoch = checkpoint["epoch"]
@@ -267,15 +276,17 @@ def main():
                 print("Training epoch: {} from current run".format(c))
                 fit_and_log(1)
                 c+=1
+                epoch += 1
         else:
             fit_and_log(EPOCH)
+            epoch += EPOCH
     except (KeyboardInterrupt, SystemExit):
         # Save the model
         if len(validation_acc) != 0:
             is_best = validation_acc[-1] > best_prec
             best_prec = max(validation_acc[-1], best_prec) 
             save_checkpoint({
-                    'epoch': epoch + 1,
+                    'epoch': epoch,
                     'state_dict':   model.state_dict(),
                     'best_prec':    best_prec,
                     'optimizer':    optimizer.state_dict(),
