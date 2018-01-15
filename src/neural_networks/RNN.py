@@ -13,7 +13,7 @@ BATCH_SIZE = 256
 EPOCH = 0           # With epoch 0, we will run until interrupted
 LR = 1e-4
 CONTINUE = True     # Attempts to continue from previous checkpoint
-DEBUG = False
+DEBUG = True
 CUDA = True
 
 CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.tar")
@@ -115,7 +115,7 @@ class Estimator(object):
                 val_log = "- val_loss: %06.4f - val_acc: %06.4f" % (val_loss, val_acc)
                 self.validation_acc.append(val_acc)
             print("Epoch %s/%s loss: %06.4f - acc: %06.4f %s" % (t, nb_epoch, loss, acc, val_log))
-
+            
     def evaluate(self, X, y, batch_size=32):
         y_pred, hidden = self.predict(X)
 
@@ -127,6 +127,15 @@ class Estimator(object):
 
         classes = torch.topk(y_pred, 1)[1].cpu().data.numpy().flatten()
         acc = self._accuracy(classes, y+1)
+        
+        _, gt = np.unique(y + 1, return_counts=True)
+        gt = gt.astype(float) / len(y)
+        _, pr = np.unique(classes, return_counts=True)
+        pr = pr.astype(float) / len(y)
+        if len(gt) == 3 and len(pr) == 3:
+            print("Distribution Grund truth: NEG {}, NEU {}, POS {}".format(gt[0], gt[1], gt[2]))
+            print("Distribution predictions: NEG {}, NEU {}, POS {}".format(pr[0], pr[1], pr[2]))
+
         return loss.data[0], acc
 
     def _accuracy(self, y_pred, y):
@@ -220,9 +229,12 @@ def main():
 
     X = CONVERTED
     y = DATA[:,1].astype(int)
+    indices = np.random.permutation(X.shape[0])
+    X = X[indices,:]
+    y = y[indices]
 
     if DEBUG:
-        X_train, X_test, y_train, y_test = train_test_split(X[:640,:], y[:640], test_size=.2)
+        X_train, X_test, y_train, y_test = train_test_split(X[:5000,:], y[:5000], test_size=.2)
     else:
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2)
 
