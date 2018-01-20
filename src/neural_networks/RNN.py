@@ -206,13 +206,13 @@ class RNN(nn.Module):
 def main():
 
     DATADIR = op.join(op.dirname(__file__), "..", "..", "data")
-    DATAFILE = op.join(DATADIR, "semeval-2017.tsv")
-    if not op.exists(DATAFILE):
-        print("Could not find semeval-2017.tsv file. Please run prep_semeval.py from data directory")
+    TRAINING_DATA_FILE = op.join(DATADIR, "dataset_training.tsv")
+    if not op.exists(TRAINING_DATA_FILE):
+        print("Could not find {} file. Please run download_data.py from data directory".format(TRAINING_DATA_FILE))
         return -1
     VOCAB = op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_vocab.json")
     CONVERT_TABLE = json.load(open(VOCAB))
-    DATA = parseFromSemEval(DATAFILE)
+    DATA = parseFromSemEval(TRAINING_DATA_FILE)
     
     # Convert according to VOCAB
     CONVERTED = np.zeros((DATA.shape[0], 140))
