@@ -81,7 +81,7 @@ def create_training_tsv():
                                                               "confidence", "date", "drop_id", "query", "semantic_gold", "text"], skiprows=1)
     apple = apple[["id", "semantic", "text"]]
     apple = apple[apple["semantic"] != "not_relevant"]
-    apple = apple["semantic"].replace({1: -1,
+    apple["semantic"] = apple["semantic"].replace({1: -1,
                                        3: 0,
                                        5: 1})
 
