@@ -5,7 +5,8 @@ from os import path as op
 DOWNLOAD_SOURCES = [("http://alt.qcri.org/semeval2017/task4/data/uploads/codalab/4a-english.zip", "4a-english-2017"),
             ("http://alt.qcri.org/semeval2017/task4/data/uploads/codalab/4c-english.zip", "4c-english-2017"),
             ("http://alt.qcri.org/semeval2017/task4/data/uploads/codalab/4e-english.zip", "4e-english-2017"),
-            ("http://cs.stanford.edu/people/alecmgo/trainingandtestdata.zip", "sentiment140")]
+            ("http://cs.stanford.edu/people/alecmgo/trainingandtestdata.zip", "sentiment140"),
+            ("https://github.com/zfz/twitter_corpus/archive/master.zip", "sanders-companies")]
 TRAINING_TSV = "dataset_training.tsv"
 VALIDATION_TSV = "dataset_validation.tsv"
 
@@ -43,9 +44,9 @@ def create_validation_tsv():
     taskE["semantic"] = taskE["semantic"].replace({-2: -1,
                                                     2: 1})
 
-    total = pandas.concat([taskA, taskC, taskE])
-    total = total.drop_duplicates(subset=["text"], keep='first')
-    total.to_csv(op.join(op.dirname(__file__), VALIDATION_TSV), sep="\t", encoding="utf-8")
+    combined = pandas.concat([taskA, taskC, taskE])
+    combined = combined.drop_duplicates(subset=["text"], keep='first')
+    combined.to_csv(op.join(op.dirname(__file__), VALIDATION_TSV), sep="\t", encoding="utf-8")
 
 
 def create_training_tsv():
@@ -54,12 +55,25 @@ def create_training_tsv():
     stanf = pandas.read_csv(op.join(op.dirname(__file__), DOWNLOAD_SOURCES[3][1],
                             "testdata.manual.2009.06.14.csv"),
                             sep=",", encoding="latin-1", names=["semantic", "id", "date", "query", "user", "text"])
-    print(stanf.columns)
+    
     stanf = stanf.drop(["date", "query", "user"], axis=1)
     stanf["semantic"] = stanf["semantic"].replace({0: -1,
                                                    2: 0,
                                                    4: 1})
-    stanf[["id", "semantic", "text"]].to_csv(op.join(op.dirname(__file__), TRAINING_TSV), sep="\t", encoding="utf-8")
+    
+    sanders = pandas.read_csv(op.join(op.dirname(__file__), DOWNLOAD_SOURCES[4][1],
+                            "twitter_corpus-master", "full-corpus.csv"),
+                            sep=",", encoding="utf-8", names=["topic", "semantic", "id", "date", "text"])
+    sanders = sanders.drop(["date", "topic"], axis=1)
+    sanders = sanders[sanders["semantic"] != "irrelevant"]
+    sanders["semantic"] = sanders["semantic"].replace({"positive": 1,
+                                                       "neutral": 0,
+                                                       "negative": -1})
+    
+    combined = pandas.concat([stanf[["id", "semantic", "text"]],
+                              sanders[["id", "semantic", "text"]]])
+    combined = combined.drop_duplicates(subset=["text"], keep='first')
+    combined.to_csv(op.join(op.dirname(__file__), TRAINING_TSV), sep="\t", encoding="utf-8")
 
 if __name__ == "__main__":
     
