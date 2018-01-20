@@ -69,7 +69,7 @@ def create_training_tsv():
     
     sanders = pandas.read_csv(op.join(op.dirname(__file__), DOWNLOAD_SOURCES[4][1],
                             "twitter_corpus-master", "full-corpus.csv"),
-                            sep=",", encoding="utf-8", names=["topic", "semantic", "id", "date", "text"])
+                            sep=",", encoding="utf-8", names=["topic", "semantic", "id", "date", "text"], skiprows=1)
     sanders = sanders.drop(["date", "topic"], axis=1)
     sanders = sanders[sanders["semantic"] != "irrelevant"]
     sanders["semantic"] = sanders["semantic"].replace({"positive": 1,
@@ -78,8 +78,9 @@ def create_training_tsv():
 
     apple = pandas.read_csv(op.join(op.dirname(__file__), "additional_sources", ADDITIONAL_SOURCES[0][1]),
                             sep=",", encoding="latin-1", names=["id", "golden", "state", "trusted", "last_judge", "semantic",
-                                                              "confidence", "date", "drop_id", "query", "semantic_gold", "text"])
+                                                              "confidence", "date", "drop_id", "query", "semantic_gold", "text"], skiprows=1)
     apple = apple[["id", "semantic", "text"]]
+    apple = apple[apple["semantic"] != "not_relevant"]
     apple = apple["semantic"].replace({1: -1,
                                        3: 0,
                                        5: 1})
