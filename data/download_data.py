@@ -7,7 +7,8 @@ DOWNLOAD_SOURCES = [("http://alt.qcri.org/semeval2017/task4/data/uploads/codalab
             ("http://alt.qcri.org/semeval2017/task4/data/uploads/codalab/4e-english.zip", "4e-english-2017"),
             ("http://cs.stanford.edu/people/alecmgo/trainingandtestdata.zip", "sentiment140"),
             ("https://github.com/zfz/twitter_corpus/archive/master.zip", "sanders-companies")]
-ADDITIONAL_SOURES = [("https://www.crowdflower.com/wp-content/uploads/2016/03/Apple-Twitter-Sentiment-DFE.csv", "apple_stock.csv")]
+ADDITIONAL_SOURCES = [("https://www.crowdflower.com/wp-content/uploads/2016/03/Apple-Twitter-Sentiment-DFE.csv", "apple_stock.csv")]
+INCLUDED_DATA = [("us_airlines.zip", "us-airlines")]
 TRAINING_TSV = "dataset_training.tsv"
 VALIDATION_TSV = "dataset_validation.tsv"
 
@@ -75,7 +76,7 @@ def create_training_tsv():
                                                        "neutral": 0,
                                                        "negative": -1})
 
-    apple = pandas.read_csv(op.join(op.dirname(__file__), "additional_sources", ADDITIONAL_SOURES[0][1]),
+    apple = pandas.read_csv(op.join(op.dirname(__file__), "additional_sources", ADDITIONAL_SOURCES[0][1]),
                             sep=",", encoding="latin-1", names=["id", "golden", "state", "trusted", "last_judge", "semantic",
                                                               "confidence", "date", "drop_id", "query", "semantic_gold", "text"])
     apple = apple[["id", "semantic", "text"]]
@@ -83,9 +84,19 @@ def create_training_tsv():
                                        3: 0,
                                        5: 1})
 
+    airline = pandas.read_csv(op.join(op.dirname(__file__), INCLUDED_DATA[0][1], "Tweets.csv"),
+                            sep=",", encoding="utf-8", names=["id", "semantic", "semantic_confidence", "neg_reason", "reason_conf",
+                                                              "airline", "airline_sentiment_gold", "user", "reason_gold", "retweet_count",
+                                                              "text", "tweet_coord", "date", "tweet_location", "user_timezone"], skiprows=1)
+    airline = airline[["id", "semantic", "text"]]
+    airline["semantic"] = airline["semantic"].replace({"negative": -1,
+                                                       "neutral": 0,
+                                                       "positive": 1})
+
     combined = pandas.concat([stanf[["id", "semantic", "text"]],
                               sanders[["id", "semantic", "text"]],
-                              apple])
+                              apple,
+                              airline])
     combined = combined.drop_duplicates(subset=["text"], keep='first')
     combined.to_csv(op.join(op.dirname(__file__), TRAINING_TSV), sep="\t", encoding="utf-8")
 
@@ -93,8 +104,9 @@ if __name__ == "__main__":
     
     # Download data contained in zip files
     for t in DOWNLOAD_SOURCES:
-        if not op.exists(op.join(op.dirname(__file__), t[1])):
-            download_and_extract(t[0], op.join(op.dirname(__file__), t[1]))
+        folder_path = op.join(op.dirname(__file__), t[1])
+        if not op.exists(folder_path):
+            download_and_extract(t[0], folder_path)
 
     # Create folder for additional sources ( not in zip )
     if not op.exists(op.join(op.dirname(__file__), "additional_sources")):
@@ -102,10 +114,19 @@ if __name__ == "__main__":
         mkdir(op.join(op.dirname(__file__), "additional_sources"))
 
     # Download and save csv data sources
-    for t in ADDITIONAL_SOURES:
+    for t in ADDITIONAL_SOURCES:
         csv_path = op.join(op.dirname(__file__), "additional_sources", t[1])
         if not op.exists(csv_path):
             download_csv(t[0], csv_path)
+
+    # Extract predistributed zips
+    for t in INCLUDED_DATA:
+        zip_path = op.join(op.dirname(__file__), "included_data", t[0])
+        folder_path = op.join(op.dirname(__file__), t[1])
+        if not op.exists(folder_path):
+            import zipfile
+            with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                zip_ref.extractall(folder_path)
 
     # Create validation data
     if not op.exists(op.join(op.dirname(__file__), VALIDATION_TSV)):
