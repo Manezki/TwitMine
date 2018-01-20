@@ -39,6 +39,7 @@ def refine():
                                                     2: 1})
 
     total = pandas.concat([taskA, taskC, taskE])
+    total = total.drop_duplicates(subset=["text"], keep='first')
     total.to_csv(op.join(op.dirname(__file__), "semeval-2017.tsv"), sep="\t", encoding="utf-8")
 
 
