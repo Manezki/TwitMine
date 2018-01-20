@@ -10,11 +10,12 @@ from sklearn.model_selection import train_test_split
 
 MAX_LEN = 140       # Lenth of a tweet
 BATCH_SIZE = 256
-EPOCH = 0           # With epoch 0, we will run until interrupted
-LR = 1e-4
+EPOCH = 25         # With epoch 0, we will run until interrupted
+LR = 1e-5
 CONTINUE = True     # Attempts to continue from previous checkpoint
-DEBUG = True
+DEBUG = False
 CUDA = True
+DATA_SLICE = 40000
 
 CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.tar")
 MODEL_PATH = op.join(op.dirname(__file__), "..", "..", "model.tar")
@@ -59,11 +60,8 @@ class Estimator(object):
         """
         loss_list = []
         acc_list = []
-        #i = 0
+
         for X, y in zip(X_list, y_list):
-            #if i%10 == 0:
-            #    print("Batch: {}/{}".format(i, len(X_list)))
-            #i += 1
             if CUDA:
                 X_v = Variable(torch.from_numpy(X).long(), requires_grad=False).cuda()
                 y_v = Variable(torch.from_numpy(y + 1).long(), requires_grad=False).cuda()
@@ -94,6 +92,7 @@ class Estimator(object):
         return sum(loss_list) / len(loss_list), sum(acc_list) / len(acc_list)
 
     def fit(self, X, y, batch_size=32, nb_epoch=10, validation_data=()):
+        # TODO keep track of the best model state and return it when finished
         X_list = batch(X, batch_size)
         y_list = batch(y, batch_size)
 
@@ -235,7 +234,7 @@ def main():
     if DEBUG:
         X_train, X_test, y_train, y_test = train_test_split(X[:5000,:], y[:5000], test_size=.2)
     else:
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2)
+        X_train, X_test, y_train, y_test = train_test_split(X[:DATA_SLICE,:], y[:DATA_SLICE], test_size=.2)
 
     epoch = 0
     best_prec = 0.0
