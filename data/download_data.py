@@ -49,7 +49,7 @@ def create_validation_csv():
 
     combined = pandas.concat([taskA, taskC, taskE])
     combined = combined.drop_duplicates(subset=["text"], keep='first')
-    combined.to_csv(op.join(op.dirname(__file__), VALIDATION_CSV), sep="\t", encoding="utf-8")
+    combined.to_csv(op.join(op.dirname(__file__), VALIDATION_CSV), sep=",", encoding="utf-8")
 
 
 def create_training_csv():
@@ -94,7 +94,7 @@ def create_training_csv():
 
     combined = pandas.concat([taskA, taskB, addTrain, addTrial])
     combined = combined.drop_duplicates(subset=["text"], keep='first')
-    combined.to_csv(op.join(op.dirname(__file__), TRAINING_CSV), sep="\t", encoding="utf-8")
+    combined.to_csv(op.join(op.dirname(__file__), TRAINING_CSV), sep=",", encoding="utf-8")
 
 
 if __name__ == "__main__":

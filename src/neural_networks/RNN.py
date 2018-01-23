@@ -24,7 +24,7 @@ MODEL_PATH = op.join(op.dirname(__file__), "..", "..", "model.tar")
 def parseFromSemEval(file):
     import pandas
     
-    f = pandas.read_csv(file, sep="\t", encoding="utf-8", index_col=0)
+    f = pandas.read_csv(file, sep=",", encoding="utf-8", index_col=0)
     return f[["text", "semantic"]].as_matrix()
 
 
@@ -205,7 +205,7 @@ class RNN(nn.Module):
 def main():
 
     DATADIR = op.join(op.dirname(__file__), "..", "..", "data")
-    TRAINING_DATA_FILE = op.join(DATADIR, "dataset_training.tsv")
+    TRAINING_DATA_FILE = op.join(DATADIR, "dataset_training.csv")
     if not op.exists(TRAINING_DATA_FILE):
         print("Could not find {} file. Please run download_data.py from data directory".format(TRAINING_DATA_FILE))
         return -1
