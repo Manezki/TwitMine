@@ -6,7 +6,8 @@ DOWNLOAD_SOURCES = [("http://alt.qcri.org/semeval2017/task4/data/uploads/codalab
             ("http://alt.qcri.org/semeval2017/task4/data/uploads/codalab/4c-english.zip", "4c-english-2017"),
             ("http://alt.qcri.org/semeval2017/task4/data/uploads/codalab/4e-english.zip", "4e-english-2017"),
             ("http://cs.stanford.edu/people/alecmgo/trainingandtestdata.zip", "sentiment140"),
-            ("https://github.com/zfz/twitter_corpus/archive/master.zip", "sanders-companies")]
+            ("https://github.com/zfz/twitter_corpus/archive/master.zip", "sanders-companies"),
+            ("http://www.saifmohammad.com/WebDocs/stance-data-all-annotations.zip", "semeval-2016")]
 ADDITIONAL_SOURCES = [("https://www.crowdflower.com/wp-content/uploads/2016/03/Apple-Twitter-Sentiment-DFE.csv", "apple_stock.csv")]
 INCLUDED_DATA = [("us_airlines.zip", "us-airlines")]
 TRAINING_TSV = "dataset_training.tsv"
@@ -85,6 +86,7 @@ def create_training_tsv():
                                        3: 0,
                                        5: 1})
 
+    # TODO The texts should be cleaned, so tweets don't start with the Airline name
     airline = pandas.read_csv(op.join(op.dirname(__file__), INCLUDED_DATA[0][1], "Tweets.csv"),
                             sep=",", encoding="utf-8", names=["id", "semantic", "semantic_confidence", "neg_reason", "reason_conf",
                                                               "airline", "airline_sentiment_gold", "user", "reason_gold", "retweet_count",
