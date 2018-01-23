@@ -5,12 +5,9 @@ from os import path as op
 DOWNLOAD_SOURCES = [("http://alt.qcri.org/semeval2017/task4/data/uploads/codalab/4a-english.zip", "4a-english-2017"),
             ("http://alt.qcri.org/semeval2017/task4/data/uploads/codalab/4c-english.zip", "4c-english-2017"),
             ("http://alt.qcri.org/semeval2017/task4/data/uploads/codalab/4e-english.zip", "4e-english-2017"),
-            ("http://cs.stanford.edu/people/alecmgo/trainingandtestdata.zip", "sentiment140"),
-            ("https://github.com/zfz/twitter_corpus/archive/master.zip", "sanders-companies")]
-ADDITIONAL_SOURCES = [("https://www.crowdflower.com/wp-content/uploads/2016/03/Apple-Twitter-Sentiment-DFE.csv", "apple_stock.csv")]
-INCLUDED_DATA = [("us_airlines.zip", "us-airlines")]
-TRAINING_TSV = "dataset_training.tsv"
-VALIDATION_TSV = "dataset_validation.tsv"
+            ("http://www.saifmohammad.com/WebDocs/stance-data-all-annotations.zip", "semeval-2016")]
+TRAINING_CSV = "dataset_training.csv"
+VALIDATION_CSV = "dataset_validation.csv"
 
 def download_and_extract(url, fname):
     import urllib.request
@@ -25,7 +22,7 @@ def download_csv(url, fname):
 
     tmp, _ = urllib.request.urlretrieve(url, fname)
 
-def create_validation_tsv():
+def create_validation_csv():
     import pandas
 
     taskA = pandas.read_csv(op.join(op.dirname(__file__), DOWNLOAD_SOURCES[0][1], "4A-English",
@@ -52,54 +49,53 @@ def create_validation_tsv():
 
     combined = pandas.concat([taskA, taskC, taskE])
     combined = combined.drop_duplicates(subset=["text"], keep='first')
-    combined.to_csv(op.join(op.dirname(__file__), VALIDATION_TSV), sep="\t", encoding="utf-8")
+    combined.to_csv(op.join(op.dirname(__file__), VALIDATION_CSV), sep="\t", encoding="utf-8")
 
 
-def create_training_tsv():
+def create_training_csv():
     import pandas
 
-    stanf = pandas.read_csv(op.join(op.dirname(__file__), DOWNLOAD_SOURCES[3][1],
-                            "testdata.manual.2009.06.14.csv"),
-                            sep=",", encoding="latin-1", names=["semantic", "id", "date", "query", "user", "text"])
-    
-    stanf = stanf.drop(["date", "query", "user"], axis=1)
-    stanf["semantic"] = stanf["semantic"].replace({0: -1,
-                                                   2: 0,
-                                                   4: 1})
-    
-    sanders = pandas.read_csv(op.join(op.dirname(__file__), DOWNLOAD_SOURCES[4][1],
-                            "twitter_corpus-master", "full-corpus.csv"),
-                            sep=",", encoding="utf-8", names=["topic", "semantic", "id", "date", "text"], skiprows=1)
-    sanders = sanders.drop(["date", "topic"], axis=1)
-    sanders = sanders[sanders["semantic"] != "irrelevant"]
-    sanders["semantic"] = sanders["semantic"].replace({"positive": 1,
-                                                       "neutral": 0,
-                                                       "negative": -1})
+    taskA = pandas.read_csv(op.join(op.dirname(__file__), DOWNLOAD_SOURCES[3][1],
+                            "data-all-annotations", "testdata-taskA-all-annotations.txt"),
+                            sep="\t", encoding="utf-8", names=["id", "target", "text", "stance", "opinion", "semantic"],
+                            skiprows=1)
+    taskA = taskA[["id", "semantic", "text"]]
+    taskA["semantic"] = taskA["semantic"].replace({"POSITIVE": 1,
+                                                   "NEITHER": 0,
+                                                   "NEGATIVE": -1})
 
-    apple = pandas.read_csv(op.join(op.dirname(__file__), "additional_sources", ADDITIONAL_SOURCES[0][1]),
-                            sep=",", encoding="latin-1", names=["id", "golden", "state", "trusted", "last_judge", "semantic",
-                                                              "confidence", "date", "drop_id", "query", "semantic_gold", "text"], skiprows=1)
-    apple = apple[["id", "semantic", "text"]]
-    apple = apple[apple["semantic"] != "not_relevant"]
-    apple["semantic"] = apple["semantic"].replace({1: -1,
-                                       3: 0,
-                                       5: 1})
+    taskB = pandas.read_csv(op.join(op.dirname(__file__), DOWNLOAD_SOURCES[3][1],
+                            "data-all-annotations", "testdata-taskB-all-annotations.txt"),
+                            sep="\t", encoding="utf-8", names=["id", "target", "text", "stance", "opinion", "semantic"],
+                            skiprows=1)
+    taskB = taskB[["id", "semantic", "text"]]
+    taskB["semantic"] = taskB["semantic"].replace({"POSITIVE": 1,
+                                                   "NEITHER": 0,
+                                                   "NEGATIVE": -1})
 
-    airline = pandas.read_csv(op.join(op.dirname(__file__), INCLUDED_DATA[0][1], "Tweets.csv"),
-                            sep=",", encoding="utf-8", names=["id", "semantic", "semantic_confidence", "neg_reason", "reason_conf",
-                                                              "airline", "airline_sentiment_gold", "user", "reason_gold", "retweet_count",
-                                                              "text", "tweet_coord", "date", "tweet_location", "user_timezone"], skiprows=1)
-    airline = airline[["id", "semantic", "text"]]
-    airline["semantic"] = airline["semantic"].replace({"negative": -1,
-                                                       "neutral": 0,
-                                                       "positive": 1})
+    # REMARK latin-1 encoding might cause trouble when saving to csv
+    addTrain = pandas.read_csv(op.join(op.dirname(__file__), DOWNLOAD_SOURCES[3][1],
+                            "data-all-annotations", "trainingdata-all-annotations.txt"),
+                            sep="\t", encoding="latin-1", names=["id", "target", "text", "stance", "opinion", "semantic"],
+                            skiprows=1)
+    addTrain = addTrain[["id", "semantic", "text"]]
+    addTrain["semantic"] = addTrain["semantic"].replace({"POSITIVE": 1,
+                                                         "NEITHER": 0,
+                                                         "NEGATIVE": -1})
 
-    combined = pandas.concat([stanf[["id", "semantic", "text"]],
-                              sanders[["id", "semantic", "text"]],
-                              apple,
-                              airline])
+    addTrial = pandas.read_csv(op.join(op.dirname(__file__), DOWNLOAD_SOURCES[3][1],
+                            "data-all-annotations", "trialdata-all-annotations.txt"),
+                            sep="\t", encoding="latin-1", names=["id", "target", "text", "stance", "opinion", "semantic"],
+                            skiprows=1)
+    addTrial = addTrial[["id", "semantic", "text"]]
+    addTrial["semantic"] = addTrial["semantic"].replace({"POSITIVE": 1,
+                                                         "NEITHER": 0,
+                                                         "NEGATIVE": -1})
+
+    combined = pandas.concat([taskA, taskB, addTrain, addTrial])
     combined = combined.drop_duplicates(subset=["text"], keep='first')
-    combined.to_csv(op.join(op.dirname(__file__), TRAINING_TSV), sep="\t", encoding="utf-8")
+    combined.to_csv(op.join(op.dirname(__file__), TRAINING_CSV), sep="\t", encoding="utf-8")
+
 
 if __name__ == "__main__":
     
@@ -109,30 +105,10 @@ if __name__ == "__main__":
         if not op.exists(folder_path):
             download_and_extract(t[0], folder_path)
 
-    # Create folder for additional sources ( not in zip )
-    if not op.exists(op.join(op.dirname(__file__), "additional_sources")):
-        from os import mkdir
-        mkdir(op.join(op.dirname(__file__), "additional_sources"))
-
-    # Download and save csv data sources
-    for t in ADDITIONAL_SOURCES:
-        csv_path = op.join(op.dirname(__file__), "additional_sources", t[1])
-        if not op.exists(csv_path):
-            download_csv(t[0], csv_path)
-
-    # Extract predistributed zips
-    for t in INCLUDED_DATA:
-        zip_path = op.join(op.dirname(__file__), "included_data", t[0])
-        folder_path = op.join(op.dirname(__file__), t[1])
-        if not op.exists(folder_path):
-            import zipfile
-            with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                zip_ref.extractall(folder_path)
-
     # Create validation data
-    if not op.exists(op.join(op.dirname(__file__), VALIDATION_TSV)):
-        create_validation_tsv()
+    if not op.exists(op.join(op.dirname(__file__), VALIDATION_CSV)):
+        create_validation_csv()
 
     # Create training data
-    if not op.exists(op.join(op.dirname(__file__), TRAINING_TSV)):
-        create_training_tsv()
+    if not op.exists(op.join(op.dirname(__file__), TRAINING_CSV)):
+        create_training_csv()
