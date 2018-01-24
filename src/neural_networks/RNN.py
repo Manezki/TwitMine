@@ -11,7 +11,7 @@ from sklearn.model_selection import train_test_split
 MAX_LEN = 140       # Lenth of a tweet
 BATCH_SIZE = 256
 EPOCH = 25         # With epoch 0, we will run until interrupted
-LR = 1e-5
+LR = 1e-3           # LR 1e-4 seems to give stable learning without big oscillation
 CONTINUE = True     # Attempts to continue from previous checkpoint
 DEBUG = False
 CUDA = True
@@ -258,6 +258,8 @@ def main():
         best_prec = checkpoint["best_prec"]
         model.load_state_dict(checkpoint["state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer"])
+        for paramGroup in optimizer.param_groups:
+            paramGroup['lr'] = LR
         training_cost = checkpoint["train_cost"]
         training_acc = checkpoint["train_hist"]
         validation_acc = checkpoint["valid_hist"]
