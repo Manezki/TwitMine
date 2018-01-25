@@ -7,14 +7,16 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from os import path as op
 from sklearn.model_selection import train_test_split
+from matplotlib import pyplot, patches
 
 MAX_LEN = 140       # Lenth of a tweet
 BATCH_SIZE = 256
-EPOCH = 25         # With epoch 0, we will run until interrupted
-LR = 1e-3           # LR 1e-4 seems to give stable learning without big oscillation
+EPOCH = 200         # With epoch 0, we will run until interrupted
+LR = 1e-4           # LR 1e-4 seems to give stable learning without big oscillation
 CONTINUE = True     # Attempts to continue from previous checkpoint
 DEBUG = False
 CUDA = True
+TEST_WITH_VALIDATION = False
 DATA_SLICE = 40000
 
 CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.tar")
@@ -26,7 +28,6 @@ def parseFromSemEval(file):
     
     f = pandas.read_csv(file, sep=",", encoding="utf-8", index_col=0)
     return f[["text", "semantic"]].as_matrix()
-
 
 def batch(tensor, batch_size):
     tensor_list = []
@@ -43,6 +44,38 @@ def save_checkpoint(state, is_best, filename=CHECKPOINT_PATH):
     torch.save(state, filename)
     if is_best:
         shutil.copyfile(filename, MODEL_PATH)
+
+def _convert_with_vocab(data, vocab_table):
+    # Convert according to VOCAB
+    CONVERTED = np.zeros((data.shape[0], 140))
+    for i in range(data.shape[0]):
+        txt = data[i,0]
+        for j in range(min(len(txt), 140)):
+            try:
+                CONVERTED[i,j] = vocab_table[txt[j]]
+            except KeyError:
+                # Keep as 0
+                pass
+    return CONVERTED
+
+def plot_progress(training, validation, loss=False):
+    xaxis = np.linspace(1, 1+len(training), num=len(training))
+    pl1 = pyplot.plot(xaxis, training, color='orange')
+    pl2 = pyplot.plot(xaxis, validation, color='blue')
+    if not loss:
+        pyplot.title("Training vs Validation accuracy")
+        pyplot.xlabel("Epoch")
+        pyplot.ylabel("Accuracy (%)")
+        orange = patches.Patch(color='orange', label="Training accuracy")
+        blue = patches.Patch(color='blue', label="Validation accuracy")
+    else:
+        pyplot.title("Training vs Validation loss")
+        pyplot.xlabel("Epoch")
+        pyplot.ylabel("Loss")
+        orange = patches.Patch(color='orange', label="Training loss")
+        blue = patches.Patch(color='blue', label="Validation loss")
+    pyplot.legend(handles=[orange, blue])
+    pyplot.show()
 
 class Estimator(object):
     ## Based on woderfull Gist https://gist.github.com/kenzotakahashi/ed9631f151710c6bd898499fcf938425
@@ -98,6 +131,7 @@ class Estimator(object):
 
         self.training_cost = []
         self.training_acc = []
+        self.validation_cost = []
         self.validation_acc = []
 
         for t in range(1, nb_epoch + 1):
@@ -108,6 +142,7 @@ class Estimator(object):
             if validation_data:
                 val_loss, val_acc = self.evaluate(validation_data[0], validation_data[1], batch_size)
                 val_log = "- val_loss: %06.4f - val_acc: %06.4f" % (val_loss, val_acc)
+                self.validation_cost.append(val_loss)
                 self.validation_acc.append(val_acc)
             print("Epoch %s/%s loss: %06.4f - acc: %06.4f %s" % (t, nb_epoch, loss, acc, val_log))
             
@@ -154,7 +189,6 @@ class Estimator(object):
 
 #############
 
-
 class RNN(nn.Module):
     def __init__(self, input_size, embed_size, hidden_size, output_size, weights_path=None, dict_path=None):
         super(RNN, self).__init__()
@@ -162,7 +196,7 @@ class RNN(nn.Module):
         self.hidden_size = hidden_size
         self.embed = nn.Embedding(401,embed_size)
 
-        self.rnn = nn.GRU(embed_size, hidden_size, bias=True)
+        self.rnn = nn.GRU(embed_size, hidden_size, bias=True, dropout=0.5)
         self.output = nn.Linear(hidden_size, output_size)
 
         if weights_path is not None:
@@ -174,13 +208,13 @@ class RNN(nn.Module):
         """ Only works with original weights"""
         import h5py
         H5 = h5py.File(weights_path, "r")
-        self.embed.weight = nn.Parameter(torch.from_numpy(H5['embedding/embedding/embeddings'].value), requires_grad=False)
+        self.embed.weight = nn.Parameter(torch.from_numpy(H5['embedding/embedding/embeddings'].value), requires_grad=True)
         # Saved files have axes swapped
-        self.rnn.weight_ih = nn.Parameter(torch.from_numpy(np.transpose(H5['rnn/rnn/kernel'].value)), requires_grad=False)
-        self.rnn.weight_hh = nn.Parameter(torch.from_numpy(np.transpose(H5['rnn/rnn/recurrent_kernel'].value)), requires_grad=False)
+        self.rnn.weight_ih = nn.Parameter(torch.from_numpy(np.transpose(H5['rnn/rnn/kernel'].value)), requires_grad=True)
+        self.rnn.weight_hh = nn.Parameter(torch.from_numpy(np.transpose(H5['rnn/rnn/recurrent_kernel'].value)), requires_grad=True)
         
-        self.rnn.bias_ih = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value), requires_grad=False)
-        self.rnn.bias_hh = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value), requires_grad=False)
+        self.rnn.bias_ih = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value), requires_grad=True)
+        self.rnn.bias_hh = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value), requires_grad=True)
         
         # Only train output layer
         self.output.weight = nn.init.xavier_normal(nn.Parameter(torch.zeros(3,256), requires_grad=True))
@@ -206,40 +240,37 @@ def main():
 
     DATADIR = op.join(op.dirname(__file__), "..", "..", "data")
     TRAINING_DATA_FILE = op.join(DATADIR, "dataset_training.csv")
+    VALIDATION_DATA_FILE = op.join(DATADIR, "dataset_validation.csv")
     if not op.exists(TRAINING_DATA_FILE):
         print("Could not find {} file. Please run download_data.py from data directory".format(TRAINING_DATA_FILE))
+        return -1
+    if not op.exists(VALIDATION_DATA_FILE):
+        print("Could not find {} file. Please run download_data.py from data directory".format(VALIDATION_DATA_FILE))
         return -1
     VOCAB = op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_vocab.json")
     CONVERT_TABLE = json.load(open(VOCAB))
     DATA = parseFromSemEval(TRAINING_DATA_FILE)
+    VALIDATION_DATA = parseFromSemEval(VALIDATION_DATA_FILE)
+    VALIDATION_Y = VALIDATION_DATA[:,1].astype(int)
+    VALIDATION_DATA = _convert_with_vocab(VALIDATION_DATA, CONVERT_TABLE)
     
-    # Convert according to VOCAB
-    CONVERTED = np.zeros((DATA.shape[0], 140))
-    for i in range(DATA.shape[0]):
-        txt = DATA[i,0]
-        for j in range(min(len(txt), 140)):
-            try:
-                CONVERTED[i,j] = CONVERT_TABLE[txt[j]]
-            except KeyError:
-                # Keep as 0
-                pass
-            
 
-    X = CONVERTED
+    X = _convert_with_vocab(DATA, CONVERT_TABLE)
     y = DATA[:,1].astype(int)
     indices = np.random.permutation(X.shape[0])
-    X = X[indices,:]
-    y = y[indices]
+    X_rand = X[indices,:]
+    y_rand = y[indices]
 
     if DEBUG:
-        X_train, X_test, y_train, y_test = train_test_split(X[:5000,:], y[:5000], test_size=.2)
+        X_train, X_test, y_train, y_test = train_test_split(X_rand[:5000,:], y_rand[:5000], test_size=.2)
     else:
-        X_train, X_test, y_train, y_test = train_test_split(X[:DATA_SLICE,:], y[:DATA_SLICE], test_size=.2)
+        X_train, X_test, y_train, y_test = train_test_split(X_rand[:DATA_SLICE,:], y_rand[:DATA_SLICE], test_size=.2)
 
     epoch = 0
     best_prec = 0.0
     training_cost = []
     training_acc = []
+    validation_cost = []
     validation_acc = []
 
     model = RNN(140, 100, 256, 3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_weights.hdf5"))
@@ -262,6 +293,7 @@ def main():
             paramGroup['lr'] = LR
         training_cost = checkpoint["train_cost"]
         training_acc = checkpoint["train_hist"]
+        validation_cost = checkpoint['valid_cost']
         validation_acc = checkpoint["valid_hist"]
         print("=> loaded checkpoint (epoch {})"
                   .format(checkpoint['epoch']))
@@ -276,11 +308,20 @@ def main():
         [training_cost.append(i) for i in clf.training_cost]
         [training_acc.append(i) for i in clf.training_acc]
         [validation_acc.append(i) for i in clf.validation_acc]
+        [validation_cost.append(i) for i in clf.validation_cost]
 
     clf = Estimator(model)
     clf.compile(optimizer,
-                loss=nn.CrossEntropyLoss())
+                loss=nn.CrossEntropyLoss(weight=torch.cuda.FloatTensor([2,1,1.5])))
+                #loss=nn.CrossEntropyLoss(weight=torch.cuda.FloatTensor([[2,1,1.5]])))
     
+    if TEST_WITH_VALIDATION:
+        _, VAL_ACC = clf.evaluate(VALIDATION_DATA, VALIDATION_Y, BATCH_SIZE)
+        print("Validation accuracy on the unseen validation data {}".format(VAL_ACC))
+        plot_progress(training_acc, validation_acc)
+        plot_progress(training_cost, validation_cost, loss=True)
+        return -1
+
     try:
         if EPOCH == 0:
             c = 0
@@ -304,6 +345,7 @@ def main():
                     'optimizer':    optimizer.state_dict(),
                     'train_cost':   training_cost,
                     'train_hist':   training_acc,
+                    'valid_cost':   valid_cost,
                     'valid_hist':   validation_acc
                 }, is_best)
         print("Saved model after interrupt")
@@ -323,8 +365,12 @@ def main():
             'optimizer':    optimizer.state_dict(),
             'train_cost':   training_cost,
             'train_hist':   training_acc,
+            'valid_cost':   validation_cost,
             'valid_hist':   validation_acc
         }, is_best)
+
+    plot_progress(training_acc, validation_acc)
+    plot_progress(training_cost, validation_cost, loss=True)
 
 if __name__ == "__main__":
     main()
