@@ -16,7 +16,7 @@ LR = 1e-4           # LR 1e-4 seems to give stable learning without big oscillat
 CONTINUE = True     # Attempts to continue from previous checkpoint
 DEBUG = False
 CUDA = True
-TEST_WITH_VALIDATION = False
+TEST_WITH_VALIDATION = False    # Only test with validation data
 DATA_SLICE = 40000
 
 CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.tar")
@@ -368,6 +368,9 @@ def main():
             'valid_cost':   validation_cost,
             'valid_hist':   validation_acc
         }, is_best)
+
+    _, VAL_ACC = clf.evaluate(VALIDATION_DATA, VALIDATION_Y, BATCH_SIZE)
+    print("Validation accuracy on the unseen validation data {}".format(VAL_ACC))
 
     plot_progress(training_acc, validation_acc)
     plot_progress(training_cost, validation_cost, loss=True)
