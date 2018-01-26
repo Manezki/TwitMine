@@ -110,3 +110,8 @@ twitter_token
 
 # Reactionrnn clone
 reactionrnn
+
+# Local files
+*.png
+model*
+checkpoint*
