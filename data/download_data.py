@@ -1,4 +1,6 @@
 from os import path as op
+import pandas
+import numpy as np
 
 # http://help.sentiment140.com/for-students/
 # https://www.crowdflower.com/data-for-everyone/
@@ -8,6 +10,7 @@ DOWNLOAD_SOURCES = [("http://alt.qcri.org/semeval2017/task4/data/uploads/codalab
             ("http://www.saifmohammad.com/WebDocs/stance-data-all-annotations.zip", "semeval-2016")]
 TRAINING_CSV = "dataset_training.csv"
 VALIDATION_CSV = "dataset_validation.csv"
+VALIDATION_PERCENT = 0.2
 
 def download_and_extract(url, fname):
     import urllib.request
@@ -49,11 +52,10 @@ def create_training_csv():
 
     combined = pandas.concat([taskA, taskC, taskE])
     combined = combined.drop_duplicates(subset=["text"], keep='first')
-    combined.to_csv(op.join(op.dirname(__file__), TRAINING_CSV), sep=",", encoding="utf-8")
+    return combined
 
 
 def create_validation_csv():
-    import pandas
 
     taskA = pandas.read_csv(op.join(op.dirname(__file__), DOWNLOAD_SOURCES[3][1],
                             "data-all-annotations", "testdata-taskA-all-annotations.txt"),
@@ -94,7 +96,7 @@ def create_validation_csv():
 
     combined = pandas.concat([taskA, taskB, addTrain, addTrial])
     combined = combined.drop_duplicates(subset=["text"], keep='first')
-    combined.to_csv(op.join(op.dirname(__file__), VALIDATION_CSV), sep=",", encoding="utf-8")
+    return combined
 
 
 if __name__ == "__main__":
@@ -107,8 +109,16 @@ if __name__ == "__main__":
 
     # Create validation data
     if not op.exists(op.join(op.dirname(__file__), VALIDATION_CSV)):
-        create_validation_csv()
+        semeval_2017 = create_validation_csv()
 
     # Create training data
     if not op.exists(op.join(op.dirname(__file__), TRAINING_CSV)):
-        create_training_csv()
+        semeval_2016 = create_training_csv()
+
+    # Do the final shuffle of the data
+    total = pandas.concat([semeval_2016, semeval_2017])
+    combined = total.drop_duplicates(subset=["text"], keep='first')
+    indices = np.random.permutation(total.shape[0])
+    cut = int(len(indices) * VALIDATION_PERCENT)
+    VALIDATION = total.iloc[indices[:cut]].to_csv(op.join(op.dirname(__file__), VALIDATION_CSV), sep=",", encoding="utf-8")
+    TRAINING = total.iloc[indices[cut:]].to_csv(op.join(op.dirname(__file__), TRAINING_CSV), sep=",", encoding="utf-8")
