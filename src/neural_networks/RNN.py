@@ -194,7 +194,7 @@ class RNN(nn.Module):
         super(RNN, self).__init__()
 
         self.hidden_size = hidden_size
-        self.embed = nn.Embedding(401,embed_size)
+        self.embed = nn.Embedding(401,embed_size, padding_idx=0)
 
         self.rnn = nn.GRU(embed_size, hidden_size, bias=True, dropout=0.5)
         self.output = nn.Linear(hidden_size, output_size)
