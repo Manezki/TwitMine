@@ -10,8 +10,8 @@ from sklearn.model_selection import train_test_split
 from matplotlib import pyplot, patches
 
 MAX_LEN = 140       # Lenth of a tweet
-BATCH_SIZE = 256
-EPOCH = 200         # With epoch 0, we will run until interrupted
+BATCH_SIZE = 512
+EPOCH = 250         # With epoch 0, we will run until interrupted
 LR = 1e-4           # LR 1e-4 seems to give stable learning without big oscillation
 CONTINUE = True     # Attempts to continue from previous checkpoint
 DEBUG = False
@@ -312,8 +312,8 @@ def main():
 
     clf = Estimator(model)
     clf.compile(optimizer,
-                loss=nn.CrossEntropyLoss(weight=torch.cuda.FloatTensor([2,1,1.5])))
-                #loss=nn.CrossEntropyLoss(weight=torch.cuda.FloatTensor([[2,1,1.5]])))
+                loss=nn.CrossEntropyLoss())
+                #loss=nn.CrossEntropyLoss(weight=torch.cuda.FloatTensor([2,1,1.5])))
     
     if TEST_WITH_VALIDATION:
         _, VAL_ACC = clf.evaluate(VALIDATION_DATA, VALIDATION_Y, BATCH_SIZE)
@@ -321,7 +321,6 @@ def main():
         plot_progress(training_acc, validation_acc)
         plot_progress(training_cost, validation_cost, loss=True)
         return -1
-
     try:
         if EPOCH == 0:
             c = 0
