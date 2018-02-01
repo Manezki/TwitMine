@@ -69,6 +69,9 @@ def plot_progress(training, validation, loss=False):
         orange = patches.Patch(color='orange', label="Training accuracy")
         blue = patches.Patch(color='blue', label="Validation accuracy")
     else:
+        minIdx = np.argmin(validation)
+        miny = np.min(training)
+        pyplot.plot([minIdx, minIdx+1], [miny, validation[minIdx]], color="red")
         pyplot.title("Training vs Validation loss")
         pyplot.xlabel("Epoch")
         pyplot.ylabel("Loss")
