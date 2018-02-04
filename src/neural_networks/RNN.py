@@ -19,8 +19,8 @@ CUDA = True
 TEST_WITH_VALIDATION = False    # Only test with validation data
 DATA_SLICE = 40000
 
-CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.tar")
-MODEL_PATH = op.join(op.dirname(__file__), "..", "..", "model.tar")
+CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.pt")
+MODEL_PATH = op.join(op.dirname(__file__), "..", "..", "model.pt")
 
 
 def parseFromSemEval(file):
