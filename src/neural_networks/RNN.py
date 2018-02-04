@@ -195,7 +195,7 @@ class Estimator(object):
 #############
 
 class RNN(nn.Module):
-    def __init__(self, input_size, embed_size, hidden_size, output_size, weights_path=None, dict_path=None):
+    def __init__(self, input_size, embed_size, hidden_size, output_size, state_dict=None, dict_path=None):
         super(RNN, self).__init__()
 
         self.hidden_size = hidden_size
@@ -204,28 +204,34 @@ class RNN(nn.Module):
         self.rnn = nn.GRU(embed_size, hidden_size, bias=True, dropout=0.5)
         self.output = nn.Linear(hidden_size, output_size)
 
-        if weights_path is not None:
-            self._load_weights(weights_path)
+        self._create_weight_tensors(input_size, hidden_size, output_size)
+
+        if state_dict is not None:
+            self._load_weights(state_dict)
+        else:
+            self._init_weights(nn.init.kaiming_normal)
 
         self.softmax = nn.LogSoftmax(dim=1)
 
-    def _load_weights(self, weights_path):
-        """ Only works with original weights"""
-        # TODO Change to pretrained model
-        import h5py
-        H5 = h5py.File(weights_path, "r")
-        self.embed.weight = nn.Parameter(torch.from_numpy(H5['embedding/embedding/embeddings'].value), requires_grad=True)
-        # Saved files have axes swapped
-        self.rnn.weight_ih = nn.Parameter(torch.from_numpy(np.transpose(H5['rnn/rnn/kernel'].value)), requires_grad=True)
-        self.rnn.weight_hh = nn.Parameter(torch.from_numpy(np.transpose(H5['rnn/rnn/recurrent_kernel'].value)), requires_grad=True)
-        
-        self.rnn.bias_ih = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value), requires_grad=True)
-        self.rnn.bias_hh = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value), requires_grad=True)
-        
-        # Only train output layer
-        self.output.weight = nn.init.xavier_normal(nn.Parameter(torch.zeros(3,256), requires_grad=True))
-        self.output.bias_ih = nn.init.xavier_normal(nn.Parameter(torch.zeros(3,256), requires_grad=True))
+    def _load_weights(self, state_dict):
+        pretrained = torch.load(state_dict)
+        self.load_state_dict(pretrained['state_dict'])
 
+    def _create_weight_tensors(self, input_size, hidden_size, output_size):
+        self.embed.weight = nn.Parameter(torch.zeros(401, 100))
+        self.rnn.weight_ih = nn.Parameter(torch.zeros(3*hidden_size, 100))
+        self.rnn.weight_hh = nn.Parameter(torch.zeros(3*hidden_size, hidden_size))
+        self.rnn.bias_ih = nn.Parameter(torch.zeros(3*hidden_size))
+        self.rnn.bias_hh = nn.Parameter(torch.zeros(3*hidden_size))
+        self.output.weight = nn.Parameter(torch.zeros(3, 256))
+        self.output.bias_ih = nn.Parameter(torch.zeros(3, 256))
+
+    def _init_weights(self, method):
+        method(self.embed.weight)
+        method(self.rnn.weight_ih)
+        method(self.rnn.weight_hh)
+        method(self.output.weight)
+        # Bias already 0s
 
     def forward(self, input, hidden):
         embedded = self.embed(input)
@@ -252,7 +258,7 @@ def main():
     if not op.exists(VALIDATION_DATA_FILE):
         print("Could not find {} file. Please run download_data.py from data directory".format(VALIDATION_DATA_FILE))
         return -1
-    VOCAB = op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_vocab.json")
+    VOCAB = op.join(op.dirname(__file__), "..", "..", "assets", "embeddings", "reactionrnn_vocab.json")
     CONVERT_TABLE = json.load(open(VOCAB))
     DATA = parseFromSemEval(TRAINING_DATA_FILE)
     VALIDATION_DATA = parseFromSemEval(VALIDATION_DATA_FILE)
@@ -278,7 +284,7 @@ def main():
     validation_cost = []
     validation_acc = []
 
-    model = RNN(140, 100, 256, 3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_weights.hdf5"))
+    model = RNN(140, 100, 256, 3, state_dict=op.join(op.dirname(__file__), "..", "..", "assets", "weights", "RNN.pt"))
     if torch.cuda.is_available() and CUDA:
         model.cuda()
         criterion = nn.CrossEntropyLoss().cuda()
@@ -292,7 +298,6 @@ def main():
         checkpoint = torch.load(MODEL_PATH)
         epoch = checkpoint["epoch"]
         best_prec = checkpoint["best_prec"]
-        model.load_state_dict(checkpoint["state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         for paramGroup in optimizer.param_groups:
             paramGroup['lr'] = LR
@@ -303,7 +308,7 @@ def main():
         print("=> loaded checkpoint (epoch {})"
                   .format(checkpoint['epoch']))
 
-    
+
     print(model)
 
 
