@@ -24,12 +24,15 @@ MODEL_PATH = op.join(op.dirname(__file__), "..", "..", "model.tar")
 
 
 def parseFromSemEval(file):
+    # TODO Move to utils
     import pandas
     
     f = pandas.read_csv(file, sep=",", encoding="utf-8", index_col=0)
     return f[["text", "semantic"]].as_matrix()
 
 def batch(tensor, batch_size):
+    # TODO Move to utils
+    # TODO Change to be more concervative with memory
     tensor_list = []
     length = tensor.shape[0]
     i = 0
@@ -59,6 +62,7 @@ def _convert_with_vocab(data, vocab_table):
     return CONVERTED
 
 def plot_progress(training, validation, loss=False):
+    # TODO move to utils
     xaxis = np.linspace(1, 1+len(training), num=len(training))
     pl1 = pyplot.plot(xaxis, training, color='orange')
     pl2 = pyplot.plot(xaxis, validation, color='blue')
@@ -181,8 +185,6 @@ class Estimator(object):
         else:
             X = Variable(torch.from_numpy(X).long())
             init_hidden = self.model.initHidden(X.shape[0], 100)
-        # Original y_pred = self.model(X, self.model.initHidden(X.size()[1]))
-        # Init hidden 100, as we perform embedding in the GRU
         y_pred = self.model(X, init_hidden)
         return y_pred		
 
@@ -209,6 +211,7 @@ class RNN(nn.Module):
 
     def _load_weights(self, weights_path):
         """ Only works with original weights"""
+        # TODO Change to pretrained model
         import h5py
         H5 = h5py.File(weights_path, "r")
         self.embed.weight = nn.Parameter(torch.from_numpy(H5['embedding/embedding/embeddings'].value), requires_grad=True)
@@ -230,7 +233,6 @@ class RNN(nn.Module):
 
         out, hidden = self.rnn(embedded, hidden)
         lin = F.relu(self.output(out[MAX_LEN-1,:,:]))
-
 
         return lin, hidden
 
@@ -328,6 +330,7 @@ def main():
         if EPOCH == 0:
             c = 0
             while True:
+                # TODO only saves after finished, should keep tract of the best weights.
                 print("Training epoch: {} from current run".format(c))
                 fit_and_log(1)
                 c+=1
