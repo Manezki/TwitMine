@@ -261,15 +261,15 @@ def main():
     
 
     X = _convert_with_vocab(DATA, CONVERT_TABLE)
+    X = X[:DATA_SLICE, :]
     y = DATA[:,1].astype(int)
-    indices = np.random.permutation(X.shape[0])
-    X_rand = X[indices,:]
-    y_rand = y[indices]
+    y = y[:DATA_SLICE]
 
-    if DEBUG:
-        X_train, X_test, y_train, y_test = train_test_split(X_rand[:5000,:], y_rand[:5000], test_size=.2)
-    else:
-        X_train, X_test, y_train, y_test = train_test_split(X_rand[:DATA_SLICE,:], y_rand[:DATA_SLICE], test_size=.2)
+    # As holdout method is used, we don't have to randomize the data
+    X_train = X[:int(X.shape[0]*0.8), :]
+    X_test = X[int(X.shape[0]*0.8):, :]
+    y_train = y[:int(y.shape[0]*0.8)]
+    y_test = y[int(y.shape[0]*0.8):]
 
     epoch = 0
     best_prec = 0.0
