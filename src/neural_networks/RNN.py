@@ -105,6 +105,7 @@ def save_checkpoint(state, is_best, filename=CHECKPOINT_PATH):
 
 def plot_progress(training, validation, loss=False):
     # TODO move to utils
+    # BUG argmin line is skewed, x-points wrong?
     xaxis = np.linspace(1, 1+len(training), num=len(training))
     pl1 = pyplot.plot(xaxis, training, color='orange')
     pl2 = pyplot.plot(xaxis, validation, color='blue')
@@ -369,7 +370,7 @@ def main():
                 #loss=nn.CrossEntropyLoss(weight=torch.cuda.FloatTensor([2,1,1.5])))
     
     if TEST_WITH_VALIDATION:
-        _, VAL_ACC = clf.evaluate(VALIDATION_DATA, VALIDATION_Y, BATCH_SIZE)
+        _, VAL_ACC = clf.evaluate(validation_data, validation_labels, BATCH_SIZE)
         print("Validation accuracy on the unseen validation data {}".format(VAL_ACC))
         plot_progress(training_acc, validation_acc)
         plot_progress(training_cost, validation_cost, loss=True)
@@ -422,7 +423,7 @@ def main():
             'valid_hist':   validation_acc
         }, is_best)
 
-    _, VAL_ACC = clf.evaluate(VALIDATION_DATA, VALIDATION_Y, BATCH_SIZE)
+    _, VAL_ACC = clf.evaluate(validation_data, validation_labels, BATCH_SIZE)
     print("Validation accuracy on the unseen validation data {}".format(VAL_ACC))
 
     plot_progress(training_acc, validation_acc)
