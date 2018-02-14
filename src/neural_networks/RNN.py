@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 import json
 import shutil
+import sys
 import torch.nn.functional as F
 from torch.autograd import Variable
 from os import path as op
@@ -78,7 +79,7 @@ def _loadCharacterEmbedding():
 
     if not op.exists(VOCAB):
         print("Fatal error")
-        print("Could not find {} file. Has it been deleted? Can be downloaded from https://github.com/Manezki/TwitMine/blob/master/assets/embeddings/reactionrnn_vocab.json".format(VOCAB))
+        print("Could not find {} file. Has it been deleted?\nCan be downloaded from https://github.com/Manezki/TwitMine/blob/master/assets/embeddings/reactionrnn_vocab.json".format(VOCAB))
         sys.exit(-1)
 
     CONVERT_TABLE = json.load(open(VOCAB))
