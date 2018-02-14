@@ -7,7 +7,6 @@ import sys
 import torch.nn.functional as F
 from torch.autograd import Variable
 from os import path as op
-from sklearn.model_selection import train_test_split
 from matplotlib import pyplot, patches
 
 MAX_LEN = 140       # Lenth of a tweet
