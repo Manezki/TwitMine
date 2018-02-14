@@ -25,10 +25,64 @@ MODEL_PATH = op.join(op.dirname(__file__), "..", "..", "model.pt")
 
 def parseFromSemEval(file):
     # TODO Move to utils
+    # TODO Remove dependency on Pandas
     import pandas
     
     f = pandas.read_csv(file, sep=",", encoding="utf-8", index_col=0)
     return f[["text", "semantic"]].as_matrix()
+
+def _convert_with_vocab(data, vocab_table):
+    # Convert according to VOCAB
+    # TODO Might not work if shape is only 1-d.
+    CONVERTED = np.zeros((data.shape[0], 140))
+    for i in range(data.shape[0]):
+        txt = data[i,0]
+        for j in range(min(len(txt), 140)):
+            try:
+                CONVERTED[i,j] = vocab_table[txt[j]]
+            except KeyError:
+                # Keep as 0
+                pass
+    return CONVERTED
+
+def _loadSemEvalData(fname):
+    """
+    Load data from predefined SemEval sources.
+    
+        Returns: (Training-data, Training-labels, Validation-data, Validation-labels)
+    """
+    
+    DATADIR = op.join(op.dirname(__file__), "..", "..", "data")
+
+    # Test if files exist
+    if not op.exists(fname):
+        # Check alternative path
+        if not op.exists(op.join(DATADIR, fname)):
+            print("Could not find {} file. Please run download_data.py from data directory".format(op.join(DATADIR, fname)))
+            return 0
+        else:
+            fname = op.join(DATADIR, fname)
+        
+    data = parseFromSemEval(fname)
+    return data
+
+def _loadCharacterEmbedding():
+    """
+    Load character-embedding indexes.
+
+        Returns: dict(character, index)
+    """
+    # Path to unpacked file
+    # TODO For packaging use path to site
+    VOCAB = op.join(op.dirname(__file__), "..", "..", "assets", "embeddings", "reactionrnn_vocab.json")
+
+    if not op.exists(VOCAB):
+        print("Fatal error")
+        print("Could not find {} file. Has it been deleted? Can be downloaded from https://github.com/Manezki/TwitMine/blob/master/assets/embeddings/reactionrnn_vocab.json".format(VOCAB))
+        sys.exit(-1)
+
+    CONVERT_TABLE = json.load(open(VOCAB))
+    return CONVERT_TABLE
 
 def batch(tensor, batch_size):
     # TODO Move to utils
@@ -48,18 +102,6 @@ def save_checkpoint(state, is_best, filename=CHECKPOINT_PATH):
     if is_best:
         shutil.copyfile(filename, MODEL_PATH)
 
-def _convert_with_vocab(data, vocab_table):
-    # Convert according to VOCAB
-    CONVERTED = np.zeros((data.shape[0], 140))
-    for i in range(data.shape[0]):
-        txt = data[i,0]
-        for j in range(min(len(txt), 140)):
-            try:
-                CONVERTED[i,j] = vocab_table[txt[j]]
-            except KeyError:
-                # Keep as 0
-                pass
-    return CONVERTED
 
 def plot_progress(training, validation, loss=False):
     # TODO move to utils
@@ -83,6 +125,7 @@ def plot_progress(training, validation, loss=False):
         blue = patches.Patch(color='blue', label="Validation loss")
     pyplot.legend(handles=[orange, blue])
     pyplot.show()
+
 
 class Estimator(object):
     ## Based on woderfull Gist https://gist.github.com/kenzotakahashi/ed9631f151710c6bd898499fcf938425
@@ -249,33 +292,33 @@ class RNN(nn.Module):
 
 def main():
 
-    DATADIR = op.join(op.dirname(__file__), "..", "..", "data")
-    TRAINING_DATA_FILE = op.join(DATADIR, "dataset_training.csv")
-    VALIDATION_DATA_FILE = op.join(DATADIR, "dataset_validation.csv")
-    if not op.exists(TRAINING_DATA_FILE):
-        print("Could not find {} file. Please run download_data.py from data directory".format(TRAINING_DATA_FILE))
-        return -1
-    if not op.exists(VALIDATION_DATA_FILE):
-        print("Could not find {} file. Please run download_data.py from data directory".format(VALIDATION_DATA_FILE))
-        return -1
-    VOCAB = op.join(op.dirname(__file__), "..", "..", "assets", "embeddings", "reactionrnn_vocab.json")
-    CONVERT_TABLE = json.load(open(VOCAB))
-    DATA = parseFromSemEval(TRAINING_DATA_FILE)
-    VALIDATION_DATA = parseFromSemEval(VALIDATION_DATA_FILE)
-    VALIDATION_Y = VALIDATION_DATA[:,1].astype(int)
-    VALIDATION_DATA = _convert_with_vocab(VALIDATION_DATA, CONVERT_TABLE)
-    
+    training = _loadSemEvalData("dataset_training.csv")
+    validation = _loadSemEvalData("dataset_validation.csv")
 
-    X = _convert_with_vocab(DATA, CONVERT_TABLE)
-    X = X[:DATA_SLICE, :]
-    y = DATA[:,1].astype(int)
-    y = y[:DATA_SLICE]
+    # This line prevents running if the data was not loaded, refrase the check for more specific use.
+    # Training and Validation should be int only when bad loading
+    if isinstance(training, int) and isinstance(validation, int):
+        sys.exit(-1)
 
-    # As holdout method is used, we don't have to randomize the data
-    X_train = X[:int(X.shape[0]*0.8), :]
-    X_test = X[int(X.shape[0]*0.8):, :]
-    y_train = y[:int(y.shape[0]*0.8)]
-    y_test = y[int(y.shape[0]*0.8):]
+    # If DATASLICE is smaller than data amount, take a subset.
+    training   = training[:DATA_SLICE, :]
+    validation = validation[:DATA_SLICE, :]
+
+    # Convert text column to embedding indexes
+    CONVERT_TABLE = _loadCharacterEmbedding()
+    training_data   = _convert_with_vocab(training, CONVERT_TABLE)
+    validation_data = _convert_with_vocab(validation, CONVERT_TABLE)
+
+    training_labels   = training[:, 1].astype(int)
+    validation_labels = validation[:, 1].astype(int)
+
+    # Split the training data to test and training set.
+    # Holdout-method is used, and no further cross validation is performed.
+    # TODO Change naming convention from Training, test, validation(unseen data) to Training, validation, test
+    X_train = training_data[:int(training_data.shape[0]*0.8), :]
+    X_test  = training_data[int(training_data.shape[0]*0.8):, :]
+    y_train = training_labels[:int(training_labels.shape[0]*0.8)]
+    y_test  = training_labels[int(training_labels.shape[0]*0.8):]
 
     epoch = 0
     best_prec = 0.0
