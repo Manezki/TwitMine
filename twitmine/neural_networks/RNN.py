@@ -3,33 +3,90 @@ import torch.nn as nn
 import numpy as np
 import json
 import shutil
+import sys
 import torch.nn.functional as F
 from torch.autograd import Variable
 from os import path as op
-from sklearn.model_selection import train_test_split
 from matplotlib import pyplot, patches
 
 MAX_LEN = 140       # Lenth of a tweet
-BATCH_SIZE = 256
-EPOCH = 200         # With epoch 0, we will run until interrupted
+BATCH_SIZE = 512
+EPOCH = 250         # With epoch 0, we will run until interrupted
 LR = 1e-4           # LR 1e-4 seems to give stable learning without big oscillation
 CONTINUE = True     # Attempts to continue from previous checkpoint
 DEBUG = False
 CUDA = True
-TEST_WITH_VALIDATION = False
+TEST_WITH_VALIDATION = False    # Only test with validation data
 DATA_SLICE = 40000
 
-CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.tar")
-MODEL_PATH = op.join(op.dirname(__file__), "..", "..", "model.tar")
+CHECKPOINT_PATH = op.join(op.dirname(__file__), "..", "..", "checkpoint.pt")
+MODEL_PATH = op.join(op.dirname(__file__), "..", "..", "model.pt")
 
 
 def parseFromSemEval(file):
+    # TODO Move to utils
+    # TODO Remove dependency on Pandas
     import pandas
     
     f = pandas.read_csv(file, sep=",", encoding="utf-8", index_col=0)
     return f[["text", "semantic"]].as_matrix()
 
+def _convert_with_vocab(data, vocab_table):
+    # Convert according to VOCAB
+    # TODO Might not work if shape is only 1-d.
+    CONVERTED = np.zeros((data.shape[0], 140))
+    for i in range(data.shape[0]):
+        txt = data[i,0]
+        for j in range(min(len(txt), 140)):
+            try:
+                CONVERTED[i,j] = vocab_table[txt[j]]
+            except KeyError:
+                # Keep as 0
+                pass
+    return CONVERTED
+
+def _loadSemEvalData(fname):
+    """
+    Load data from predefined SemEval sources.
+    
+        Returns: (Training-data, Training-labels, Validation-data, Validation-labels)
+    """
+    
+    DATADIR = op.join(op.dirname(__file__), "..", "..", "data")
+
+    # Test if files exist
+    if not op.exists(fname):
+        # Check alternative path
+        if not op.exists(op.join(DATADIR, fname)):
+            print("Could not find {} file. Please run download_data.py from data directory".format(op.join(DATADIR, fname)))
+            return 0
+        else:
+            fname = op.join(DATADIR, fname)
+        
+    data = parseFromSemEval(fname)
+    return data
+
+def _loadCharacterEmbedding():
+    """
+    Load character-embedding indexes.
+
+        Returns: dict(character, index)
+    """
+    # Path to unpacked file
+    # TODO For packaging use path to site
+    VOCAB = op.join(op.dirname(__file__), "..", "..", "assets", "embeddings", "reactionrnn_vocab.json")
+
+    if not op.exists(VOCAB):
+        print("Fatal error")
+        print("Could not find {} file. Has it been deleted?\nCan be downloaded from https://github.com/Manezki/TwitMine/blob/master/assets/embeddings/reactionrnn_vocab.json".format(VOCAB))
+        sys.exit(-1)
+
+    CONVERT_TABLE = json.load(open(VOCAB))
+    return CONVERT_TABLE
+
 def batch(tensor, batch_size):
+    # TODO Move to utils
+    # TODO Change to be more concervative with memory
     tensor_list = []
     length = tensor.shape[0]
     i = 0
@@ -45,20 +102,10 @@ def save_checkpoint(state, is_best, filename=CHECKPOINT_PATH):
     if is_best:
         shutil.copyfile(filename, MODEL_PATH)
 
-def _convert_with_vocab(data, vocab_table):
-    # Convert according to VOCAB
-    CONVERTED = np.zeros((data.shape[0], 140))
-    for i in range(data.shape[0]):
-        txt = data[i,0]
-        for j in range(min(len(txt), 140)):
-            try:
-                CONVERTED[i,j] = vocab_table[txt[j]]
-            except KeyError:
-                # Keep as 0
-                pass
-    return CONVERTED
 
 def plot_progress(training, validation, loss=False):
+    # TODO move to utils
+    # BUG argmin line is skewed, x-points wrong?
     xaxis = np.linspace(1, 1+len(training), num=len(training))
     pl1 = pyplot.plot(xaxis, training, color='orange')
     pl2 = pyplot.plot(xaxis, validation, color='blue')
@@ -69,6 +116,9 @@ def plot_progress(training, validation, loss=False):
         orange = patches.Patch(color='orange', label="Training accuracy")
         blue = patches.Patch(color='blue', label="Validation accuracy")
     else:
+        minIdx = np.argmin(validation)
+        miny = np.min(training)
+        pyplot.plot([minIdx, minIdx+1], [miny, validation[minIdx]], color="red")
         pyplot.title("Training vs Validation loss")
         pyplot.xlabel("Epoch")
         pyplot.ylabel("Loss")
@@ -178,8 +228,6 @@ class Estimator(object):
         else:
             X = Variable(torch.from_numpy(X).long())
             init_hidden = self.model.initHidden(X.shape[0], 100)
-        # Original y_pred = self.model(X, self.model.initHidden(X.size()[1]))
-        # Init hidden 100, as we perform embedding in the GRU
         y_pred = self.model(X, init_hidden)
         return y_pred		
 
@@ -190,36 +238,43 @@ class Estimator(object):
 #############
 
 class RNN(nn.Module):
-    def __init__(self, input_size, embed_size, hidden_size, output_size, weights_path=None, dict_path=None):
+    def __init__(self, input_size, embed_size, hidden_size, output_size, state_dict=None, dict_path=None):
         super(RNN, self).__init__()
 
         self.hidden_size = hidden_size
-        self.embed = nn.Embedding(401,embed_size)
+        self.embed = nn.Embedding(401,embed_size, padding_idx=0)
 
         self.rnn = nn.GRU(embed_size, hidden_size, bias=True, dropout=0.5)
         self.output = nn.Linear(hidden_size, output_size)
 
-        if weights_path is not None:
-            self._load_weights(weights_path)
+        self._create_weight_tensors(input_size, hidden_size, output_size)
+
+        if state_dict is not None:
+            self._load_weights(state_dict)
+        else:
+            self._init_weights(nn.init.kaiming_normal)
 
         self.softmax = nn.LogSoftmax(dim=1)
 
-    def _load_weights(self, weights_path):
-        """ Only works with original weights"""
-        import h5py
-        H5 = h5py.File(weights_path, "r")
-        self.embed.weight = nn.Parameter(torch.from_numpy(H5['embedding/embedding/embeddings'].value), requires_grad=True)
-        # Saved files have axes swapped
-        self.rnn.weight_ih = nn.Parameter(torch.from_numpy(np.transpose(H5['rnn/rnn/kernel'].value)), requires_grad=True)
-        self.rnn.weight_hh = nn.Parameter(torch.from_numpy(np.transpose(H5['rnn/rnn/recurrent_kernel'].value)), requires_grad=True)
-        
-        self.rnn.bias_ih = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value), requires_grad=True)
-        self.rnn.bias_hh = nn.Parameter(torch.from_numpy(H5['rnn/rnn/bias'].value), requires_grad=True)
-        
-        # Only train output layer
-        self.output.weight = nn.init.xavier_normal(nn.Parameter(torch.zeros(3,256), requires_grad=True))
-        self.output.bias_ih = nn.init.xavier_normal(nn.Parameter(torch.zeros(3,256), requires_grad=True))
+    def _load_weights(self, state_dict):
+        pretrained = torch.load(state_dict)
+        self.load_state_dict(pretrained['state_dict'])
 
+    def _create_weight_tensors(self, input_size, hidden_size, output_size):
+        self.embed.weight = nn.Parameter(torch.zeros(401, 100))
+        self.rnn.weight_ih = nn.Parameter(torch.zeros(3*hidden_size, 100))
+        self.rnn.weight_hh = nn.Parameter(torch.zeros(3*hidden_size, hidden_size))
+        self.rnn.bias_ih = nn.Parameter(torch.zeros(3*hidden_size))
+        self.rnn.bias_hh = nn.Parameter(torch.zeros(3*hidden_size))
+        self.output.weight = nn.Parameter(torch.zeros(3, 256))
+        self.output.bias_ih = nn.Parameter(torch.zeros(3, 256))
+
+    def _init_weights(self, method):
+        method(self.embed.weight)
+        method(self.rnn.weight_ih)
+        method(self.rnn.weight_hh)
+        method(self.output.weight)
+        # Bias already 0s
 
     def forward(self, input, hidden):
         embedded = self.embed(input)
@@ -227,7 +282,6 @@ class RNN(nn.Module):
 
         out, hidden = self.rnn(embedded, hidden)
         lin = F.relu(self.output(out[MAX_LEN-1,:,:]))
-
 
         return lin, hidden
 
@@ -238,33 +292,33 @@ class RNN(nn.Module):
 
 def main():
 
-    DATADIR = op.join(op.dirname(__file__), "..", "..", "data")
-    TRAINING_DATA_FILE = op.join(DATADIR, "dataset_training.csv")
-    VALIDATION_DATA_FILE = op.join(DATADIR, "dataset_validation.csv")
-    if not op.exists(TRAINING_DATA_FILE):
-        print("Could not find {} file. Please run download_data.py from data directory".format(TRAINING_DATA_FILE))
-        return -1
-    if not op.exists(VALIDATION_DATA_FILE):
-        print("Could not find {} file. Please run download_data.py from data directory".format(VALIDATION_DATA_FILE))
-        return -1
-    VOCAB = op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_vocab.json")
-    CONVERT_TABLE = json.load(open(VOCAB))
-    DATA = parseFromSemEval(TRAINING_DATA_FILE)
-    VALIDATION_DATA = parseFromSemEval(VALIDATION_DATA_FILE)
-    VALIDATION_Y = VALIDATION_DATA[:,1].astype(int)
-    VALIDATION_DATA = _convert_with_vocab(VALIDATION_DATA, CONVERT_TABLE)
-    
+    training = _loadSemEvalData("dataset_training.csv")
+    validation = _loadSemEvalData("dataset_validation.csv")
 
-    X = _convert_with_vocab(DATA, CONVERT_TABLE)
-    y = DATA[:,1].astype(int)
-    indices = np.random.permutation(X.shape[0])
-    X_rand = X[indices,:]
-    y_rand = y[indices]
+    # This line prevents running if the data was not loaded, refrase the check for more specific use.
+    # Training and Validation should be int only when bad loading
+    if isinstance(training, int) and isinstance(validation, int):
+        sys.exit(-1)
 
-    if DEBUG:
-        X_train, X_test, y_train, y_test = train_test_split(X_rand[:5000,:], y_rand[:5000], test_size=.2)
-    else:
-        X_train, X_test, y_train, y_test = train_test_split(X_rand[:DATA_SLICE,:], y_rand[:DATA_SLICE], test_size=.2)
+    # If DATASLICE is smaller than data amount, take a subset.
+    training   = training[:DATA_SLICE, :]
+    validation = validation[:DATA_SLICE, :]
+
+    # Convert text column to embedding indexes
+    CONVERT_TABLE = _loadCharacterEmbedding()
+    training_data   = _convert_with_vocab(training, CONVERT_TABLE)
+    validation_data = _convert_with_vocab(validation, CONVERT_TABLE)
+
+    training_labels   = training[:, 1].astype(int)
+    validation_labels = validation[:, 1].astype(int)
+
+    # Split the training data to test and training set.
+    # Holdout-method is used, and no further cross validation is performed.
+    # TODO Change naming convention from Training, test, validation(unseen data) to Training, validation, test
+    X_train = training_data[:int(training_data.shape[0]*0.8), :]
+    X_test  = training_data[int(training_data.shape[0]*0.8):, :]
+    y_train = training_labels[:int(training_labels.shape[0]*0.8)]
+    y_test  = training_labels[int(training_labels.shape[0]*0.8):]
 
     epoch = 0
     best_prec = 0.0
@@ -273,7 +327,7 @@ def main():
     validation_cost = []
     validation_acc = []
 
-    model = RNN(140, 100, 256, 3, weights_path=op.join(op.dirname(__file__), "..", "..", "reactionrnn_pretrained", "reactionrnn_weights.hdf5"))
+    model = RNN(140, 100, 256, 3, state_dict=op.join(op.dirname(__file__), "..", "..", "assets", "weights", "RNN.pt"))
     if torch.cuda.is_available() and CUDA:
         model.cuda()
         criterion = nn.CrossEntropyLoss().cuda()
@@ -287,7 +341,6 @@ def main():
         checkpoint = torch.load(MODEL_PATH)
         epoch = checkpoint["epoch"]
         best_prec = checkpoint["best_prec"]
-        model.load_state_dict(checkpoint["state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         for paramGroup in optimizer.param_groups:
             paramGroup['lr'] = LR
@@ -298,7 +351,7 @@ def main():
         print("=> loaded checkpoint (epoch {})"
                   .format(checkpoint['epoch']))
 
-    
+
     print(model)
 
 
@@ -312,20 +365,20 @@ def main():
 
     clf = Estimator(model)
     clf.compile(optimizer,
-                loss=nn.CrossEntropyLoss(weight=torch.cuda.FloatTensor([2,1,1.5])))
-                #loss=nn.CrossEntropyLoss(weight=torch.cuda.FloatTensor([[2,1,1.5]])))
+                loss=nn.CrossEntropyLoss())
+                #loss=nn.CrossEntropyLoss(weight=torch.cuda.FloatTensor([2,1,1.5])))
     
     if TEST_WITH_VALIDATION:
-        _, VAL_ACC = clf.evaluate(VALIDATION_DATA, VALIDATION_Y, BATCH_SIZE)
+        _, VAL_ACC = clf.evaluate(validation_data, validation_labels, BATCH_SIZE)
         print("Validation accuracy on the unseen validation data {}".format(VAL_ACC))
         plot_progress(training_acc, validation_acc)
         plot_progress(training_cost, validation_cost, loss=True)
         return -1
-
     try:
         if EPOCH == 0:
             c = 0
             while True:
+                # TODO only saves after finished, should keep tract of the best weights.
                 print("Training epoch: {} from current run".format(c))
                 fit_and_log(1)
                 c+=1
@@ -368,6 +421,9 @@ def main():
             'valid_cost':   validation_cost,
             'valid_hist':   validation_acc
         }, is_best)
+
+    _, VAL_ACC = clf.evaluate(validation_data, validation_labels, BATCH_SIZE)
+    print("Validation accuracy on the unseen validation data {}".format(VAL_ACC))
 
     plot_progress(training_acc, validation_acc)
     plot_progress(training_cost, validation_cost, loss=True)

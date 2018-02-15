@@ -1,0 +1,3 @@
+include assets/weights/RNN.pt
+include assets/embeddings/reactionrnn_vocab.json
+include README.md
