@@ -104,15 +104,18 @@ if __name__ == "__main__":
     # Download data contained in zip files
     for t in DOWNLOAD_SOURCES:
         folder_path = op.join(op.dirname(__file__), t[1])
+        print("Downloading data file from: {}".format(t[0]))
         if not op.exists(folder_path):
             download_and_extract(t[0], folder_path)
 
     # Create validation data
     if not op.exists(op.join(op.dirname(__file__), VALIDATION_CSV)):
+        print("Creating csv with validation partition.")
         semeval_2017 = create_validation_csv()
 
     # Create training data
     if not op.exists(op.join(op.dirname(__file__), TRAINING_CSV)):
+        print("Creating csv with training partition.")
         semeval_2016 = create_training_csv()
 
     # Do the final shuffle of the data

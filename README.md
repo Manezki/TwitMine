@@ -21,11 +21,26 @@ Pytorch is available for download from their [homepage](http://pytorch.org/).
 Additional requirements listed in 'requirements.txt'
 ```
 
+# Getting started
+
+In order to download and partition datasets run:
+```
+# In repository root folder.
+python3 data/download_data.py
+```
+
+To train the network use:
+```
+# In repository root folder.
+python3 src/neural_networks/RNN.py
+```
+
+
 # Contribution
 
 Pull Requests are always welcome, and greatly appreciated.<br>
 Even some basics properties could use help, like:
- * Including the data from SemEval competitions (2013-2015).
+ * Include the data from SemEval competitions (2013-2015).
  * Reformatting the code to importable form.
  * Better handling of memory during the training.
 
