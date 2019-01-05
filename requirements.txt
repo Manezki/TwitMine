@@ -21,8 +21,8 @@ pylint==1.8.1
 pyparsing==2.2.0
 python-dateutil==2.6.1
 pytz==2017.3
-PyYAML==3.12
-requests==2.18.4
+pyyaml>=4.2b1
+requests>=2.21.0
 requests-oauthlib==0.8.0
 rsa==3.4.2
 scikit-learn==0.19.1
@@ -32,5 +32,5 @@ sklearn==0.0
 torch==0.3.0.post4
 torchvision==0.2.0
 tweepy==3.5.0
-urllib3==1.22
+urllib3>=1.24
 wrapt==1.10.11
